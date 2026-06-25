@@ -1,0 +1,98 @@
+{
+  "_comment": "SafeForger CV Service Configuration — Camera calibration and zone mapping",
+
+  "mqtt": {
+    "broker_host": "localhost",
+    "broker_port": 1883,
+    "client_id": "safeforger-cv-service",
+    "reconnect_delay_s": 5
+  },
+
+  "cameras": {
+    "CAM-01": {
+      "label": "CDU Main Gate",
+      "zone": "Z-01",
+      "source": 0,
+      "source_type": "webcam",
+      "rtsp_url": null,
+      "resolution": [1280, 720],
+      "fps": 15,
+      "enabled": true,
+      "mqtt_topic": "plant/Z-01/vision",
+      "homography_matrix": null,
+      "_note": "Set rtsp_url to 'rtsp://admin:password@IP:554/stream' for real IP cameras"
+    },
+    "CAM-02": {
+      "label": "Tank Farm Perimeter",
+      "zone": "Z-03",
+      "source": "test_video.mp4",
+      "source_type": "file",
+      "rtsp_url": null,
+      "resolution": [1280, 720],
+      "fps": 15,
+      "enabled": false,
+      "mqtt_topic": "plant/Z-03/vision",
+      "homography_matrix": null
+    }
+  },
+
+  "detection": {
+    "model": "yolov8n.pt",
+    "confidence_threshold": 0.45,
+    "iou_threshold": 0.45,
+    "device": "cpu",
+    "classes_of_interest": [0],
+    "_note": "class 0 = person in COCO. PPE detection requires fine-tuned model.",
+    "ppe_model": null,
+    "_ppe_model_note": "Set to path of fine-tuned PPE model. E.g. 'ppe_yolov8s.pt'. Download from Roboflow or train on Construction-PPE dataset.",
+
+    "ppe_classes": {
+      "0": "Helmet",
+      "1": "No_Helmet",
+      "2": "Safety_Vest",
+      "3": "No_Safety_Vest",
+      "4": "Safety_Glasses",
+      "5": "Gloves",
+      "6": "Mask"
+    },
+    "violation_classes": ["No_Helmet", "No_Safety_Vest"],
+
+    "zone_regions": {
+      "Z-01": {
+        "description": "Crude Distillation Unit — restricted area",
+        "pixel_polygon": [[0, 0], [640, 0], [640, 360], [0, 360]],
+        "restricted": true,
+        "requires_ppe": ["Helmet", "Safety_Vest"]
+      }
+    }
+  },
+
+  "homography": {
+    "_description": "Maps pixel coordinates (camera image) to plant layout coordinates (CRS.Simple Leaflet units)",
+    "_calibration_method": "4-point perspective transform (findHomography). Run calibration.py to generate.",
+    "plant_layout_bounds": {
+      "width_px": 1180,
+      "height_px": 640,
+      "scale_factor": 1.0
+    },
+    "camera_calibrations": {}
+  },
+
+  "smoke_detection": {
+    "enabled": true,
+    "method": "hsv_threshold",
+    "hsv_lower": [0, 0, 150],
+    "hsv_upper": [180, 50, 255],
+    "min_area_px": 5000,
+    "alert_threshold_pct": 0.15
+  },
+
+  "output": {
+    "display_window": false,
+    "save_detections": false,
+    "output_dir": "detections/",
+    "annotated_stream_port": 8765,
+    "http_api_port": 5002,
+    "log_level": "INFO"
+  }
+}

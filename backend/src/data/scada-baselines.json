@@ -1,0 +1,249 @@
+{
+  "_comment": "Realistic industrial baselines from public datasets",
+  "_sources": [
+    "UCI Gas Sensor Array Drift Dataset",
+    "WUSTL-IIoT SCADA Dataset (Modbus/TCP profiles)",
+    "Case Western Reserve Bearing Dataset (vibration baselines)",
+    "Kaggle Smart Manufacturing IoT-Cloud Monitoring Dataset"
+  ],
+
+  "gas_sensor_profiles": {
+    "_ref": "UCI Gas Sensor Array Drift Dataset — CO, Ethanol, NH3 long-term drift",
+    "CH4": {
+      "baseline_ppm_equiv": 2.1,
+      "drift_rate_per_hour": 0.08,
+      "noise_std": 0.3,
+      "alarm_levels": {
+        "warning_lel_pct": 10,
+        "critical_lel_pct": 20,
+        "fatal_lel_pct": 60
+      },
+      "lel_concentration_pct_volume": 5.0,
+      "modbus_register": 30001,
+      "modbus_unit": "% LEL",
+      "opc_ua_tag": "ns=2;s=GasSensor.CH4.ZoneA"
+    },
+    "H2S": {
+      "baseline_ppm": 1.2,
+      "drift_rate_per_hour": 0.04,
+      "noise_std": 0.2,
+      "alarm_levels": {
+        "warning_ppm": 5,
+        "critical_ppm": 10,
+        "fatal_ppm": 300
+      },
+      "tlv_twa_ppm": 1,
+      "modbus_register": 30002,
+      "modbus_unit": "ppm",
+      "opc_ua_tag": "ns=2;s=GasSensor.H2S.ZoneB"
+    },
+    "CO": {
+      "baseline_ppm": 8.5,
+      "drift_rate_per_hour": 0.12,
+      "noise_std": 0.8,
+      "alarm_levels": {
+        "warning_ppm": 25,
+        "critical_ppm": 50,
+        "fatal_ppm": 200
+      },
+      "tlv_twa_ppm": 25,
+      "modbus_register": 30003,
+      "modbus_unit": "ppm",
+      "opc_ua_tag": "ns=2;s=GasSensor.CO.ZoneA"
+    },
+    "O2": {
+      "baseline_pct": 20.9,
+      "drift_rate_per_hour": -0.02,
+      "noise_std": 0.15,
+      "alarm_levels": {
+        "warning_pct": 19.5,
+        "critical_pct": 16.0,
+        "enriched_pct": 23.5
+      },
+      "modbus_register": 30004,
+      "modbus_unit": "%",
+      "opc_ua_tag": "ns=2;s=GasSensor.O2.ConfinedSpace"
+    },
+    "LEL_composite": {
+      "baseline_pct": 3.5,
+      "modbus_register": 30005,
+      "modbus_unit": "% LEL"
+    }
+  },
+
+  "temperature_profiles": {
+    "_ref": "WUSTL-IIoT SCADA Dataset — thermal sensor baselines",
+    "process_temp": {
+      "baseline_celsius": 45.2,
+      "normal_range": [20, 70],
+      "warning_celsius": 75,
+      "critical_celsius": 90,
+      "noise_std": 1.2,
+      "modbus_register": 30020,
+      "modbus_unit": "°C",
+      "opc_ua_tag": "ns=2;s=Thermocouple.CDU.Outlet"
+    },
+    "bearing_temp": {
+      "_ref": "Case Western Reserve Bearing Dataset — normal bearing temp profile",
+      "baseline_celsius": 38.4,
+      "normal_range": [30, 55],
+      "warning_celsius": 65,
+      "critical_celsius": 80,
+      "noise_std": 0.9,
+      "modbus_register": 30021,
+      "modbus_unit": "°C"
+    }
+  },
+
+  "pressure_profiles": {
+    "_ref": "WUSTL-IIoT SCADA Dataset — Valve4 pressure register",
+    "process_pressure": {
+      "baseline_bar": 8.3,
+      "normal_range": [6, 12],
+      "warning_bar": 15,
+      "critical_bar": 20,
+      "noise_std": 0.4,
+      "modbus_register": 30040,
+      "modbus_unit": "bar",
+      "opc_ua_tag": "ns=2;s=Valve4_Pressure"
+    },
+    "pump_discharge": {
+      "baseline_bar": 4.2,
+      "normal_range": [3, 6],
+      "warning_bar": 7,
+      "critical_bar": 9,
+      "noise_std": 0.2,
+      "modbus_register": 30041,
+      "modbus_unit": "bar"
+    }
+  },
+
+  "vibration_profiles": {
+    "_ref": "Case Western Reserve Bearing Dataset — normal/fault vibration signatures",
+    "pump_vibration": {
+      "baseline_mm_s": 2.1,
+      "normal_range": [0.5, 4.0],
+      "warning_mm_s": 7.1,
+      "critical_mm_s": 11.2,
+      "noise_std": 0.3,
+      "modbus_register": 30060,
+      "modbus_unit": "mm/s RMS",
+      "fault_signature": {
+        "inner_race_freq_hz": 162.2,
+        "outer_race_freq_hz": 107.4,
+        "ball_defect_freq_hz": 141.2
+      }
+    }
+  },
+
+  "scada_equipment": {
+    "_ref": "WUSTL-IIoT SCADA Dataset — PLC/SCADA equipment state machine",
+    "pump_P101": {
+      "label": "Crude Pump P-101",
+      "zone": "Z-01",
+      "states": ["STOPPED", "STARTING", "RUNNING", "DEGRADED", "FAULT", "MAINTENANCE"],
+      "normal_state": "RUNNING",
+      "rpm_baseline": 1480,
+      "current_baseline_a": 42.3,
+      "modbus_coil": 1,
+      "modbus_register": 40001,
+      "opc_ua_tag": "ns=2;s=Pump.P101.Status"
+    },
+    "compressor_K201": {
+      "label": "Compressor K-201",
+      "zone": "Z-09",
+      "states": ["STOPPED", "STARTING", "RUNNING", "SURGE", "FAULT", "MAINTENANCE"],
+      "normal_state": "RUNNING",
+      "pressure_ratio_baseline": 3.2,
+      "current_baseline_a": 88.7,
+      "modbus_coil": 2,
+      "modbus_register": 40002,
+      "opc_ua_tag": "ns=2;s=Compressor.K201.Status"
+    },
+    "heat_exchanger_E101": {
+      "label": "Heat Exchanger E-101",
+      "zone": "Z-08",
+      "states": ["NORMAL", "FOULING", "BYPASSED", "MAINTENANCE", "FAULT"],
+      "normal_state": "NORMAL",
+      "effectiveness_baseline_pct": 87.4,
+      "modbus_register": 40003
+    },
+    "valve_FCV301": {
+      "label": "Flow Control Valve FCV-301",
+      "zone": "Z-01",
+      "states": ["CLOSED", "OPENING", "OPEN", "CLOSING", "FAULT", "MANUAL"],
+      "normal_state": "OPEN",
+      "position_pct_baseline": 67.3,
+      "flow_baseline_m3h": 124.5,
+      "modbus_coil": 4,
+      "modbus_register": 40004,
+      "opc_ua_tag": "ns=2;s=Valve.FCV301.Position"
+    },
+    "boiler_B101": {
+      "label": "Boiler B-101",
+      "zone": "Z-04",
+      "states": ["COLD", "WARMING", "NORMAL", "HIGH_TEMP", "EMERGENCY_SHUTDOWN"],
+      "normal_state": "NORMAL",
+      "pressure_baseline_bar": 12.4,
+      "temp_baseline_c": 187,
+      "modbus_register": 40005
+    },
+    "cooling_tower_CT01": {
+      "label": "Cooling Tower CT-01",
+      "zone": "Z-14",
+      "states": ["STOPPED", "RUNNING", "REDUCED", "MAINTENANCE"],
+      "normal_state": "RUNNING",
+      "fan_rpm_baseline": 892,
+      "approach_temp_baseline_c": 4.2,
+      "modbus_register": 40006
+    },
+    "flare_KO": {
+      "label": "Flare KO Drum",
+      "zone": "Z-06",
+      "states": ["NORMAL", "HIGH_LIQUID", "ALARM", "FAULT"],
+      "normal_state": "NORMAL",
+      "level_pct_baseline": 12.3,
+      "modbus_register": 40007
+    },
+    "storage_V401": {
+      "label": "Storage Vessel V-401",
+      "zone": "Z-03",
+      "states": ["NORMAL", "HIGH_LEVEL", "LOW_LEVEL", "OVERPRESSURE", "MAINTENANCE"],
+      "normal_state": "NORMAL",
+      "level_pct_baseline": 73.2,
+      "pressure_baseline_bar": 2.4,
+      "modbus_register": 40008
+    }
+  },
+
+  "anomaly_injection_profiles": {
+    "gas_leak_slow": {
+      "description": "Slow CH4 leak — below single-sensor threshold, compound risk with hot work",
+      "sensor": "CH4",
+      "rate_per_tick": 0.8,
+      "target_value": 14.0,
+      "duration_ticks": 30
+    },
+    "o2_depletion": {
+      "description": "O2 depletion in confined space — maintenance work",
+      "sensor": "O2",
+      "rate_per_tick": -0.12,
+      "target_value": 17.5,
+      "duration_ticks": 25
+    },
+    "h2s_spike": {
+      "description": "Sudden H2S release from drain — pump work in progress",
+      "sensor": "H2S",
+      "rate_per_tick": 1.5,
+      "target_value": 8.5,
+      "duration_ticks": 15
+    },
+    "bearing_fault": {
+      "description": "Bearing degradation — vibration signature escalating",
+      "sensor": "VIBRATION",
+      "rate_per_tick": 0.15,
+      "target_value": 9.2,
+      "duration_ticks": 40
+    }
+  }
+}

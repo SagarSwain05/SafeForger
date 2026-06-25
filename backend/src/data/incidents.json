@@ -1,0 +1,80 @@
+[
+  {
+    "id": "INC-001",
+    "date": "2019-05-07",
+    "location": "Visakhapatnam LG Polymers",
+    "type": "Gas Release",
+    "gas": "Styrene",
+    "casualties": 12,
+    "description": "Styrene gas leak from storage tank due to thermal runaway during COVID lockdown. Safety valves failed, inhibitor depleted. Workers re-entering without proper PPE assessment.",
+    "rootCause": "Confined space entry during abnormal process conditions without proper gas testing",
+    "regulation": "OISD-GDN-169, Factory Act Section 36",
+    "pattern": "maintenance_gap + abnormal_conditions + confined_space",
+    "tags": ["styrene", "gas_release", "confined_space", "process_deviation"]
+  },
+  {
+    "id": "INC-002",
+    "date": "2020-03-08",
+    "location": "HPCL Mumbai Refinery",
+    "type": "Hot Work + Gas",
+    "gas": "H2S",
+    "casualties": 3,
+    "description": "Hot work permit issued for welding near hydrocracker unit. H2S accumulated in low-lying drain area. Gas not detected as sensor was in maintenance. Weld spark ignited accumulated gas.",
+    "rootCause": "Hot work permit active simultaneously with H2S accumulation; sensor offline",
+    "regulation": "OISD-STD-105 Section 4.2, DGMS Circular 6/2018",
+    "pattern": "hot_work + gas_accumulation + sensor_failure",
+    "tags": ["H2S", "hot_work", "welding", "permit_conflict"]
+  },
+  {
+    "id": "INC-003",
+    "date": "2021-11-15",
+    "location": "IOCL Panipat Refinery",
+    "type": "Confined Space",
+    "gas": "CO",
+    "casualties": 2,
+    "description": "Workers entered confined space (vessel) during shift changeover without proper atmospheric testing. Incoming shift not briefed on CO buildup from previous cleaning operation.",
+    "rootCause": "Shift changeover communication gap + confined space entry without gas clearance",
+    "regulation": "OISD-GDN-192, Factory Act Section 87",
+    "pattern": "shift_change + confined_space + communication_gap",
+    "tags": ["CO", "confined_space", "shift_change", "atmospheric_testing"]
+  },
+  {
+    "id": "INC-004",
+    "date": "2022-04-22",
+    "location": "BPCL Kochi Refinery",
+    "type": "Simultaneous Operations",
+    "gas": "CH4",
+    "casualties": 0,
+    "description": "Near-miss: Two permits active simultaneously — electrical isolation in compressor hall and hot work 30 meters away. CH4 leaked from loose fitting, reached hot work area. Automatic shutdown prevented ignition.",
+    "rootCause": "Simultaneous operations without compound risk assessment; permit system siloed",
+    "regulation": "OISD-STD-105 Section 3.1, Factory Act Section 36A",
+    "pattern": "simultaneous_operations + gas_leak + permit_conflict",
+    "tags": ["CH4", "hot_work", "electrical_isolation", "simultaneous_ops"]
+  },
+  {
+    "id": "INC-005",
+    "date": "2023-02-10",
+    "location": "ONGC Hazira Plant",
+    "type": "SCADA Failure + Maintenance",
+    "gas": "H2S",
+    "casualties": 1,
+    "description": "Maintenance crew working on pump during planned outage. SCADA system showed process as stable, but field conditions showed H2S accumulation. SCADA sensor calibration was overdue by 3 months.",
+    "rootCause": "SCADA sensor drift + maintenance activity + inadequate field verification",
+    "regulation": "OISD-STD-118, DGMS Technical Circular 2/2020",
+    "pattern": "scada_failure + maintenance + sensor_drift",
+    "tags": ["H2S", "SCADA", "maintenance", "sensor_calibration"]
+  },
+  {
+    "id": "INC-006",
+    "date": "2023-08-30",
+    "location": "Reliance Jamnagar SEZ",
+    "type": "Shift Change + Multiple Permits",
+    "gas": "LPG",
+    "casualties": 0,
+    "description": "Near-miss: During shift changeover, 4 permits were active simultaneously across two adjacent zones. New shift supervisor not fully briefed. LPG vapor cloud detected 40 minutes into shift by field operator.",
+    "rootCause": "Multiple active permits + shift change + inadequate handover protocol",
+    "regulation": "OISD-STD-105, Factory Act Section 7B",
+    "pattern": "multiple_permits + shift_change + vapor_cloud",
+    "tags": ["LPG", "shift_change", "multiple_permits", "vapor_cloud"]
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/.next",
+  "installCommand": "cd frontend && npm install",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://safeforger-backend.onrender.com",
+    "NEXT_PUBLIC_WS_URL": "https://safeforger-backend.onrender.com"
+  }
+}

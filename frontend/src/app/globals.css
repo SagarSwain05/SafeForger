@@ -1,0 +1,258 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@600;700;800;900&display=swap');
+@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design Tokens ── */
+:root {
+  --bg-primary: #050914;
+  --bg-secondary: #080f1e;
+  --bg-card: rgba(10, 18, 40, 0.85);
+  --bg-glass: rgba(14, 25, 55, 0.6);
+  --border-subtle: rgba(56, 100, 200, 0.15);
+  --border-glow: rgba(56, 150, 255, 0.4);
+
+  --safe: #00e676;
+  --safe-dim: rgba(0, 230, 118, 0.12);
+  --safe-glow: 0 0 20px rgba(0, 230, 118, 0.4);
+
+  --warning: #ffb300;
+  --warning-dim: rgba(255, 179, 0, 0.12);
+  --warning-glow: 0 0 20px rgba(255, 179, 0, 0.4);
+
+  --elevated: #ff8f00;
+  --elevated-dim: rgba(255, 143, 0, 0.12);
+
+  --danger: #ff4444;
+  --danger-dim: rgba(255, 68, 68, 0.12);
+  --danger-glow: 0 0 30px rgba(255, 68, 68, 0.5);
+
+  --critical: #ff1744;
+  --critical-dim: rgba(255, 23, 68, 0.15);
+  --critical-glow: 0 0 40px rgba(255, 23, 68, 0.6);
+
+  --info: #448aff;
+  --info-dim: rgba(68, 138, 255, 0.12);
+
+  --accent: #00b0ff;
+  --accent-dim: rgba(0, 176, 255, 0.1);
+
+  --text-primary: #e8f0ff;
+  --text-secondary: #8ba0c4;
+  --text-muted: #4a6080;
+
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Orbitron', monospace;
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Grid Background ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(56, 100, 200, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 100, 200, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Glass Card ── */
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.glass-card:hover {
+  border-color: var(--border-glow);
+  box-shadow: 0 0 20px rgba(56, 150, 255, 0.08);
+}
+
+/* ── Status Colors ── */
+.status-safe     { color: var(--safe); }
+.status-warning  { color: var(--warning); }
+.status-elevated { color: var(--elevated); }
+.status-danger   { color: var(--danger); }
+.status-critical { color: var(--critical); }
+
+.bg-safe     { background: var(--safe-dim); border-color: rgba(0, 230, 118, 0.3); }
+.bg-warning  { background: var(--warning-dim); border-color: rgba(255, 179, 0, 0.3); }
+.bg-elevated { background: var(--elevated-dim); border-color: rgba(255, 143, 0, 0.3); }
+.bg-danger   { background: var(--danger-dim); border-color: rgba(255, 68, 68, 0.3); }
+.bg-critical { background: var(--critical-dim); border-color: rgba(255, 23, 68, 0.4); }
+
+/* ── Risk Score Ring ── */
+.risk-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Pulse Animations ── */
+@keyframes pulse-safe     { 0%, 100% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.4); } 50% { box-shadow: 0 0 0 8px rgba(0, 230, 118, 0); } }
+@keyframes pulse-warning  { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 179, 0, 0.4); } 50% { box-shadow: 0 0 0 8px rgba(255, 179, 0, 0); } }
+@keyframes pulse-critical { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 23, 68, 0.6); } 50% { box-shadow: 0 0 0 12px rgba(255, 23, 68, 0); } }
+@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes scanLine { 0% { top: 0; } 100% { top: 100%; } }
+@keyframes glitch { 0%, 100% { clip-path: inset(0 0 100% 0); } 50% { clip-path: inset(40% 0 20% 0); } }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes shimmer { from { background-position: -1000px 0; } to { background-position: 1000px 0; } }
+
+.pulse-safe     { animation: pulse-safe 2s infinite; }
+.pulse-warning  { animation: pulse-warning 1.5s infinite; }
+.pulse-critical { animation: pulse-critical 0.8s infinite; }
+.fade-in-up     { animation: fadeInUp 0.4s ease forwards; }
+.blink          { animation: blink 1s step-end infinite; }
+
+/* ── Alert Ticker ── */
+.ticker-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ticker-inner {
+  display: inline-flex;
+  animation: ticker 40s linear infinite;
+}
+.ticker-inner:hover { animation-play-state: paused; }
+
+/* ── Sensor Bar ── */
+.sensor-bar-track {
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sensor-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Mono Values ── */
+.mono { font-family: var(--font-mono); }
+.display-font { font-family: var(--font-display); }
+
+/* ── Nav Active ── */
+.nav-active {
+  background: rgba(0, 176, 255, 0.1);
+  border-right: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(68, 138, 255, 0.3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(68, 138, 255, 0.5); }
+
+/* ── CCTV Camera Feed ── */
+.cctv-feed {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cctv-scanline {
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: rgba(0, 255, 0, 0.3);
+  animation: scanLine 3s linear infinite;
+  pointer-events: none;
+}
+.cctv-overlay {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(0, 255, 100, 0.3);
+  pointer-events: none;
+}
+.cctv-timestamp {
+  position: absolute;
+  top: 8px; left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #00ff66;
+  text-shadow: 0 0 8px #00ff66;
+}
+.cctv-label {
+  position: absolute;
+  bottom: 8px; left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #00ff66;
+}
+.cctv-recording {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 8px; height: 8px;
+  background: #ff1744;
+  border-radius: 50%;
+  animation: blink 1s step-end infinite;
+}
+
+/* ── Knowledge Graph ── */
+.graph-container {
+  background: radial-gradient(ellipse at center, rgba(10, 20, 60, 0.8) 0%, rgba(5, 9, 20, 0.95) 70%);
+  border-radius: 12px;
+}
+
+/* ── Emergency Red Mode ── */
+.emergency-mode {
+  animation: emergencyFlash 0.5s ease-in-out infinite alternate;
+}
+@keyframes emergencyFlash {
+  from { background-color: rgba(255, 23, 68, 0.05); }
+  to { background-color: rgba(255, 23, 68, 0.12); }
+}
+
+/* ── Shimmer Loading ── */
+.shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* ── Tag Chips ── */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  background: rgba(68, 138, 255, 0.12);
+  border: 1px solid rgba(68, 138, 255, 0.25);
+  color: var(--accent);
+}
+
+/* ── Utility ── */
+.truncate-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

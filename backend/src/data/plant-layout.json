@@ -1,0 +1,45 @@
+{
+  "plant": {
+    "name": "Visakhapatnam Refinery Unit-3",
+    "width": 1200,
+    "height": 800
+  },
+  "zones": [
+    { "id": "Z-01", "name": "Crude Distillation Unit", "x": 80, "y": 80, "w": 200, "h": 150, "type": "ATEX-Zone1", "hazardClass": "HIGH", "color": "#ff4444" },
+    { "id": "Z-02", "name": "Hydrocracker Unit", "x": 320, "y": 80, "w": 180, "h": 150, "type": "ATEX-Zone1", "hazardClass": "HIGH", "color": "#ff4444" },
+    { "id": "Z-03", "name": "Storage Tank Farm", "x": 550, "y": 60, "w": 220, "h": 180, "type": "ATEX-Zone0", "hazardClass": "CRITICAL", "color": "#ff0000" },
+    { "id": "Z-04", "name": "Utility Block", "x": 820, "y": 80, "w": 160, "h": 120, "type": "Non-Hazardous", "hazardClass": "LOW", "color": "#44ff88" },
+    { "id": "Z-05", "name": "Control Room", "x": 1020, "y": 60, "w": 140, "h": 100, "type": "Safe", "hazardClass": "SAFE", "color": "#4488ff" },
+    { "id": "Z-06", "name": "Flare Stack Area", "x": 80, "y": 290, "w": 150, "h": 120, "type": "ATEX-Zone2", "hazardClass": "MEDIUM", "color": "#ff8844" },
+    { "id": "Z-07", "name": "Pump Station A", "x": 290, "y": 290, "w": 160, "h": 110, "type": "ATEX-Zone1", "hazardClass": "HIGH", "color": "#ff4444" },
+    { "id": "Z-08", "name": "Heat Exchanger Bay", "x": 510, "y": 300, "w": 180, "h": 110, "type": "ATEX-Zone2", "hazardClass": "MEDIUM", "color": "#ff8844" },
+    { "id": "Z-09", "name": "Compressor Hall", "x": 750, "y": 280, "w": 170, "h": 130, "type": "ATEX-Zone1", "hazardClass": "HIGH", "color": "#ff4444" },
+    { "id": "Z-10", "name": "Maintenance Workshop", "x": 980, "y": 270, "w": 180, "h": 110, "type": "Non-Hazardous", "hazardClass": "LOW", "color": "#44ff88" },
+    { "id": "Z-11", "name": "Confined Space CS-01", "x": 80, "y": 470, "w": 130, "h": 100, "type": "Confined-Space", "hazardClass": "CRITICAL", "color": "#ff0000" },
+    { "id": "Z-12", "name": "Confined Space CS-02", "x": 270, "y": 470, "w": 130, "h": 100, "type": "Confined-Space", "hazardClass": "CRITICAL", "color": "#ff0000" },
+    { "id": "Z-13", "name": "Loading Bay", "x": 460, "y": 460, "w": 200, "h": 120, "type": "ATEX-Zone2", "hazardClass": "MEDIUM", "color": "#ff8844" },
+    { "id": "Z-14", "name": "Cooling Tower", "x": 720, "y": 460, "w": 180, "h": 120, "type": "Non-Hazardous", "hazardClass": "LOW", "color": "#44ff88" },
+    { "id": "Z-15", "name": "Emergency Assembly", "x": 980, "y": 460, "w": 180, "h": 100, "type": "Safe", "hazardClass": "SAFE", "color": "#4488ff" }
+  ],
+  "sensors": [
+    { "id": "S-GAS-01", "zone": "Z-01", "type": "CH4", "x": 130, "y": 140 },
+    { "id": "S-GAS-02", "zone": "Z-02", "type": "CH4", "x": 380, "y": 140 },
+    { "id": "S-GAS-03", "zone": "Z-03", "type": "H2S", "x": 620, "y": 120 },
+    { "id": "S-GAS-04", "zone": "Z-07", "type": "H2S", "x": 340, "y": 340 },
+    { "id": "S-GAS-05", "zone": "Z-09", "type": "CO", "x": 820, "y": 340 },
+    { "id": "S-GAS-06", "zone": "Z-11", "type": "O2", "x": 130, "y": 520 },
+    { "id": "S-GAS-07", "zone": "Z-12", "type": "O2", "x": 320, "y": 520 },
+    { "id": "S-TEMP-01", "zone": "Z-01", "type": "TEMP", "x": 200, "y": 120 },
+    { "id": "S-TEMP-02", "zone": "Z-08", "type": "TEMP", "x": 580, "y": 350 },
+    { "id": "S-PRESS-01", "zone": "Z-02", "type": "PRESSURE", "x": 460, "y": 130 },
+    { "id": "S-PRESS-02", "zone": "Z-09", "type": "PRESSURE", "x": 900, "y": 310 }
+  ],
+  "cameras": [
+    { "id": "CAM-01", "zone": "Z-01", "x": 160, "y": 90, "label": "CDU Main Gate" },
+    { "id": "CAM-02", "zone": "Z-03", "x": 640, "y": 70, "label": "Tank Farm Perimeter" },
+    { "id": "CAM-03", "zone": "Z-07", "x": 350, "y": 295, "label": "Pump Station Entry" },
+    { "id": "CAM-04", "zone": "Z-11", "x": 100, "y": 475, "label": "Confined Space CS-01" },
+    { "id": "CAM-05", "zone": "Z-13", "x": 530, "y": 465, "label": "Loading Bay" },
+    { "id": "CAM-06", "zone": "Z-05", "x": 1060, "y": 70, "label": "Control Room Entry" }
+  ]
+}

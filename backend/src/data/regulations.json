@@ -1,0 +1,51 @@
+[
+  {
+    "id": "REG-OISD-105",
+    "code": "OISD-STD-105",
+    "title": "Hot Work Permit System",
+    "body": "No hot work shall be carried out in or near any area where flammable or explosive material or vapors are present unless a hot work permit has been issued by an authorized person. Gas tests shall be conducted before and during hot work. All sources of ignition shall be removed from a radius of 15 meters.",
+    "tags": ["hot_work", "permit", "gas_test", "ignition"]
+  },
+  {
+    "id": "REG-OISD-169",
+    "code": "OISD-GDN-169",
+    "title": "Safety in Confined Spaces",
+    "body": "Entry into confined space requires: (1) atmospheric testing for O2 (>19.5%, <23.5%), flammable gas (<10% LEL), toxic gas below TLV; (2) continuous monitoring during occupancy; (3) standby person outside; (4) rescue equipment available. No entry if O2 <16% or any gas >10% LEL.",
+    "tags": ["confined_space", "O2", "LEL", "atmospheric_testing"]
+  },
+  {
+    "id": "REG-OISD-192",
+    "code": "OISD-GDN-192",
+    "title": "Shift Handover Procedures",
+    "body": "All active permits, equipment status, ongoing work, abnormal conditions, and safety concerns must be communicated during shift handover. Written handover records mandatory. No new hazardous activity to commence during handover period of 30 minutes.",
+    "tags": ["shift_change", "handover", "permit_transfer", "communication"]
+  },
+  {
+    "id": "REG-OISD-118",
+    "code": "OISD-STD-118",
+    "title": "Instrumentation and Control Systems",
+    "body": "Safety-critical sensors and instrumentation shall be calibrated at intervals not exceeding 90 days. Any sensor in bypass or maintenance state shall trigger an automatic manual monitoring protocol. SCADA alarms shall not be silenced without documented authorization.",
+    "tags": ["SCADA", "sensor_calibration", "instrumentation", "bypass"]
+  },
+  {
+    "id": "REG-FACTORY-36",
+    "code": "Factory Act Section 36",
+    "title": "Precautions Against Dangerous Fumes",
+    "body": "In any factory, no person shall be required to enter any chamber, tank, vat, pit, pipe, flue or other confined space in which any gas, fume, vapor or dust is likely to be present unless: certificate of safety is given, self-contained breathing apparatus is available, and a reliable person watches outside.",
+    "tags": ["confined_space", "gas", "fumes", "breathing_apparatus"]
+  },
+  {
+    "id": "REG-DGMS-6-2018",
+    "code": "DGMS Circular 6/2018",
+    "title": "Simultaneous Operations Management",
+    "body": "Where two or more permits are active in spatially proximate areas (within 50 meters), a Simultaneous Operations (SIMOPS) risk assessment shall be conducted. The permit authority shall assess compound hazards. Hot work and electrical work permits in adjacent zones require dual authorization.",
+    "tags": ["simultaneous_operations", "SIMOPS", "compound_risk", "dual_authorization"]
+  },
+  {
+    "id": "REG-DGMS-2020",
+    "code": "DGMS Technical Circular 2/2020",
+    "title": "Gas Detection and Monitoring",
+    "body": "Fixed gas detectors shall be calibrated every 6 months. A gas reading between 10-20% LEL constitutes a WARNING state requiring evacuation of non-essential personnel. Reading >20% LEL constitutes DANGER requiring immediate plant shutdown. Portable detectors mandatory for confined space entry.",
+    "tags": ["gas_detection", "LEL", "calibration", "evacuation_threshold"]
+  }
+]
