@@ -18,6 +18,36 @@ const PermitAgent = require('./agents/PermitAgent');
 // ── MQTT ─────────────────────────────────────────────────────────────────────
 let mqttBroker = null;
 let mqttIngestion = null;
+const wireMqttCallbacks = () => {
+  if (!mqttIngestion) return;
+
+  mqttIngestion.onVision((zone, payload) => {
+    lastCvDetections[zone] = { ...payload, zone, receivedAt: payload.receivedAt ?? Date.now() };
+
+    // Smoke detection -> auto-escalate risk
+    if (payload.smoke_detected || payload.smokeDetected) {
+      console.log(`[CV] SMOKE DETECTED in zone ${zone} — escalating risk`);
+      io.emit('risk:cv_alert', { type: 'SMOKE', zone, timestamp: new Date().toISOString() });
+    }
+
+    // PPE violations + active permit = compound risk
+    const violationCount = payload.ppe_violations ?? payload.ppeViolations ?? 0;
+    if (violationCount > 0) {
+      const permitsByZone = getActivePermitsByZone();
+      const zonePermits = permitsByZone[zone] ?? [];
+      if (zonePermits.length > 0) {
+        io.emit('risk:cv_alert', {
+          type: 'PPE_VIOLATION_WITH_ACTIVE_PERMIT',
+          zone,
+          violations: violationCount,
+          permits: zonePermits.map(p => p.id),
+          severity: 'HIGH',
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+  });
+};
 const initMqtt = async (io) => {
   try {
     const MqttBroker = require('./mqtt/broker');
@@ -25,6 +55,7 @@ const initMqtt = async (io) => {
     mqttBroker = new MqttBroker();
     await mqttBroker.start();
     mqttIngestion = new MqttIngestion(io);
+    wireMqttCallbacks();
     // Small delay so broker is ready before client connects
     setTimeout(() => {
       mqttIngestion.connect();
@@ -250,7 +281,12 @@ app.patch('/api/permits/:id/status', (req, res) => {
 
 // ── Risk Assessment ───────────────────────────────────────────────────────────
 app.get('/api/risk', async (req, res) => {
-  const risk = await riskOrchestrator.analyze(lastSensorReadings);
+  const risk = await riskOrchestrator.analyze(lastSensorReadings, {
+    cvDetections: lastCvDetections,
+    workers: workerSim.getAllWorkers(),
+    shift: shiftInfo,
+    scada: lastScadaState,
+  });
   res.json(risk);
 });
 
@@ -355,7 +391,12 @@ sensorSim.on('readings', async (readings) => {
   }
 
   if (sensorSim.scenarioStep % 5 === 0) {
-    const risk = await riskOrchestrator.analyze(readings);
+    const risk = await riskOrchestrator.analyze(readings, {
+      cvDetections: lastCvDetections,
+      workers: workerSim.getAllWorkers(),
+      shift: shiftInfo,
+      scada: lastScadaState,
+    });
     io.emit('risk:update', risk);
 
     const emergency = emergencyOrchestrator.getState();
@@ -395,29 +436,6 @@ scadaSim.on('scada:update', (state) => {
     }
   }
 });
-
-// MQTT CV detection → risk correlation
-if (mqttIngestion) {
-  mqttIngestion.onVision((zone, payload) => {
-    lastCvDetections[zone] = { ...payload, zone, receivedAt: Date.now() };
-    // Smoke detection → auto-escalate risk
-    if (payload.smoke_detected) {
-      console.log(`[CV] SMOKE DETECTED in zone ${zone} — escalating risk`);
-      io.emit('risk:cv_alert', { type: 'SMOKE', zone, timestamp: new Date().toISOString() });
-    }
-    // PPE violations + active permit = compound risk
-    if (payload.ppe_violations > 0) {
-      const zonePermits = getActivePermitsByZone ? getActivePermitsByZone(zone) : [];
-      if (zonePermits.length > 0) {
-        io.emit('risk:cv_alert', {
-          type: 'PPE_VIOLATION_WITH_ACTIVE_PERMIT',
-          zone, violations: payload.ppe_violations, permits: zonePermits.map(p => p.id),
-          severity: 'HIGH', timestamp: new Date().toISOString(),
-        });
-      }
-    }
-  });
-}
 
 // ── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5001;

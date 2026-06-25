@@ -1,16 +1,16 @@
 // Embedded MQTT Broker using Aedes
 // Serves as the central message bus for IoT sensors, SCADA, and Python CV service
-const aedes = require('aedes');
+const aedesModule = require('aedes');
+const aedesFactory = aedesModule.Aedes?.createBroker ? aedesModule.Aedes : (aedesModule.default || aedesModule);
 const net = require('net');
 
 const MQTT_PORT = 1883;
 
 class MqttBroker {
   constructor() {
-    this.broker = aedes();
-    this.server = net.createServer(this.broker.handle);
+    this.broker = null;
+    this.server = null;
     this.clients = new Set();
-    this._setupEvents();
   }
 
   _setupEvents() {
@@ -37,7 +37,13 @@ class MqttBroker {
     });
   }
 
-  start() {
+  async start() {
+    this.broker = aedesFactory.createBroker
+      ? await aedesFactory.createBroker()
+      : aedesFactory();
+    this.server = net.createServer(this.broker.handle);
+    this._setupEvents();
+
     return new Promise((resolve, reject) => {
       this.server.listen(MQTT_PORT, () => {
         console.log(`[MQTT Broker] Aedes broker listening on port ${MQTT_PORT}`);
@@ -48,6 +54,7 @@ class MqttBroker {
   }
 
   publish(topic, payload) {
+    if (!this.broker) return;
     const packet = {
       cmd: 'publish',
       topic,
@@ -71,6 +78,7 @@ class MqttBroker {
 
   stop() {
     return new Promise((resolve) => {
+      if (!this.broker || !this.server) return resolve();
       this.broker.close(() => {
         this.server.close(resolve);
       });

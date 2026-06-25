@@ -108,26 +108,30 @@ class MqttIngestion {
   }
 
   _handleVisionDetection(zone, payload, event) {
-    // Store latest CV detections
-    cvDetectionStore[zone] = {
+    const normalized = {
       ...payload,
       zone,
+      camera_id: payload.camera_id ?? payload.cameraId,
+      cameraId: payload.cameraId ?? payload.camera_id,
+      worker_count: payload.worker_count ?? payload.workerCount ?? 0,
+      workerCount: payload.workerCount ?? payload.worker_count ?? 0,
+      ppe_violations: payload.ppe_violations ?? payload.ppeViolations ?? 0,
+      ppeViolations: payload.ppeViolations ?? payload.ppe_violations ?? 0,
+      mapped_positions: payload.mapped_positions ?? payload.mappedPositions ?? [],
+      mappedPositions: payload.mappedPositions ?? payload.mapped_positions ?? [],
+      smoke_detected: payload.smoke_detected ?? payload.smokeDetected ?? false,
+      smokeDetected: payload.smokeDetected ?? payload.smoke_detected ?? false,
       receivedAt: Date.now(),
+      timestamp: payload.timestamp ?? event.timestamp,
     };
 
-    // Broadcast to frontend for live CCTV overlay
-    _io?.emit('cv:detection', {
-      zone,
-      cameraId: payload.camera_id,
-      detections: payload.detections ?? [],
-      workerCount: payload.worker_count ?? 0,
-      ppeViolations: payload.ppe_violations ?? 0,
-      mappedPositions: payload.mapped_positions ?? [],
-      smokeDetected: payload.smoke_detected ?? false,
-      timestamp: event.timestamp,
-    });
+    // Store latest CV detections
+    cvDetectionStore[zone] = normalized;
 
-    if (_cvCallback) _cvCallback(zone, payload);
+    // Broadcast to frontend for live CCTV overlay
+    _io?.emit('cv:detection', normalized);
+
+    if (_cvCallback) _cvCallback(zone, normalized);
   }
 
   _handleScada(equipment, payload, event) {

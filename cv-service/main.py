@@ -88,6 +88,7 @@ def run_camera(camera_id: str, config: dict, args):
     fps_target = cam_cfg.get("fps", 15)
     frame_delay = 1.0 / fps_target
     mock_mode = args.mock
+    config["_mock_mode"] = mock_mode
 
     logger.info(f"=== SafeForger CV Service — {camera_id} ({zone_id}) ===")
     logger.info(f"Mode: {'MOCK (no camera)' if mock_mode else 'LIVE'}")

@@ -113,6 +113,61 @@ const RISK_RULES = [
       }
       return { triggered: false };
     }
+  },
+  {
+    id: 'CR-006',
+    name: 'PPE Violation + Active Permit',
+    severity: 'HIGH',
+    regulation: 'OISD-STD-105 + site PPE matrix',
+    check: (sensors, permits, context = {}) => {
+      const cvByZone = context.cvDetections ?? {};
+      const violations = Object.entries(cvByZone)
+        .map(([zone, d]) => ({
+          zone,
+          count: d.ppe_violations ?? d.ppeViolations ?? 0,
+          camera: d.camera_id ?? d.cameraId,
+        }))
+        .filter(v => v.count > 0 && (permits[v.zone] ?? []).length > 0);
+
+      if (violations.length > 0) {
+        return {
+          triggered: true,
+          details: `${violations.reduce((sum, v) => sum + v.count, 0)} PPE violation(s) detected by CCTV while permit work is active.`,
+          affectedZones: [...new Set(violations.map(v => v.zone))],
+          cameras: violations.map(v => v.camera).filter(Boolean),
+        };
+      }
+      return { triggered: false };
+    }
+  },
+  {
+    id: 'CR-007',
+    name: 'Visual Smoke + Process Hazard',
+    severity: 'CRITICAL',
+    regulation: 'OISD-STD-116 + emergency response plan',
+    check: (sensors, permits, context = {}) => {
+      const cvByZone = context.cvDetections ?? {};
+      const smokeZones = Object.entries(cvByZone)
+        .filter(([, d]) => d.smoke_detected || d.smokeDetected)
+        .map(([zone]) => zone);
+
+      if (smokeZones.length === 0) return { triggered: false };
+
+      const processHazards = sensors.filter(s =>
+        smokeZones.includes(s.zone) &&
+        (s.status === 'WARNING' || s.status === 'CRITICAL' || (permits[s.zone] ?? []).length > 0)
+      );
+
+      if (processHazards.length > 0 || smokeZones.some(z => (permits[z] ?? []).length > 0)) {
+        return {
+          triggered: true,
+          details: `CCTV smoke indication in ${smokeZones.join(', ')} with active process hazard or permit context. Dispatch field verification and isolate ignition sources.`,
+          affectedZones: smokeZones,
+          sensors: processHazards.map(s => s.id),
+        };
+      }
+      return { triggered: false };
+    }
   }
 ];
 
@@ -122,16 +177,20 @@ class CompoundRiskOrchestrator {
     this.alertHistory = [];
     this.riskScore = 0;
     this.overallStatus = 'SAFE';
+    this.lastSensorReadings = [];
+    this.lastContext = {};
   }
 
-  async analyze(sensorReadings) {
+  async analyze(sensorReadings, context = {}) {
     const permitsByZone = getActivePermitsByZone();
     const triggeredRules = [];
+    this.lastSensorReadings = sensorReadings;
+    this.lastContext = context;
 
     // Run all compound risk rules
     for (const rule of RISK_RULES) {
       try {
-        const result = rule.check(sensorReadings, permitsByZone);
+        const result = rule.check(sensorReadings, permitsByZone, context);
         if (result.triggered) {
           triggeredRules.push({
             ...rule,
@@ -156,6 +215,11 @@ class CompoundRiskOrchestrator {
     const criticalSensors = sensorReadings.filter(s => s.status === 'CRITICAL').length;
     const warningSensors = sensorReadings.filter(s => s.status === 'WARNING').length;
     score += criticalSensors * 10 + warningSensors * 3;
+
+    const cvDetections = Object.values(context.cvDetections ?? {});
+    const ppeViolations = cvDetections.reduce((sum, d) => sum + (d.ppe_violations ?? d.ppeViolations ?? 0), 0);
+    const smokeDetections = cvDetections.filter(d => d.smoke_detected || d.smokeDetected).length;
+    score += Math.min(15, ppeViolations * 5) + smokeDetections * 20;
     score = Math.min(100, score);
 
     let status = 'SAFE';
@@ -214,29 +278,73 @@ Keep response under 100 words.`;
 
   getKnowledgeGraph() {
     const permitsByZone = getActivePermitsByZone();
+    const sensors = this.lastSensorReadings ?? [];
+    const cvDetections = this.lastContext.cvDetections ?? {};
+    const scadaRegisters = this.lastContext.scada?.registers ?? [];
     const nodes = [];
     const edges = [];
+    const seen = new Set();
+
+    const addNode = (node) => {
+      if (seen.has(node.id)) return;
+      nodes.push(node);
+      seen.add(node.id);
+    };
 
     // Zone nodes
     const activeZones = new Set();
     this.currentAlerts.forEach(a => (a.affectedZones || []).forEach(z => activeZones.add(z)));
     Object.keys(permitsByZone).forEach(z => activeZones.add(z));
+    sensors.forEach(s => activeZones.add(s.zone));
+    Object.keys(cvDetections).forEach(z => activeZones.add(z));
+    scadaRegisters.forEach(r => activeZones.add(r.zone));
 
     activeZones.forEach(zoneId => {
-      nodes.push({ id: zoneId, label: zoneId, type: 'ZONE', color: '#4488ff' });
+      addNode({ id: zoneId, label: zoneId, type: 'ZONE', color: '#4488ff' });
     });
 
     // Permit nodes
     Object.entries(permitsByZone).forEach(([zoneId, permits]) => {
       permits.forEach(permit => {
-        nodes.push({ id: permit.id, label: permit.type, type: 'PERMIT', color: '#ff8844' });
+        addNode({ id: permit.id, label: permit.type, type: 'PERMIT', color: '#ff8844' });
         edges.push({ from: permit.id, to: zoneId, label: 'active_in' });
       });
     });
 
+    // Sensor nodes
+    sensors.forEach(sensor => {
+      const color = sensor.status === 'CRITICAL' ? '#ff2244' : sensor.status === 'WARNING' ? '#ffb300' : '#00cc77';
+      addNode({ id: sensor.id, label: `${sensor.type}: ${sensor.value}${sensor.unit}`, type: 'SENSOR', color });
+      edges.push({ from: sensor.id, to: sensor.zone, label: 'located_in' });
+    });
+
+    // CCTV nodes
+    Object.entries(cvDetections).forEach(([zoneId, detection]) => {
+      const cameraId = detection.camera_id ?? detection.cameraId ?? `CV-${zoneId}`;
+      const violationCount = detection.ppe_violations ?? detection.ppeViolations ?? 0;
+      const smoke = detection.smoke_detected || detection.smokeDetected;
+      addNode({
+        id: cameraId,
+        label: `${cameraId}: ${detection.worker_count ?? detection.workerCount ?? 0} workers`,
+        type: 'CCTV',
+        color: smoke ? '#ff2244' : violationCount > 0 ? '#ff8844' : '#00cc77',
+      });
+      edges.push({ from: cameraId, to: zoneId, label: 'observes' });
+    });
+
+    // SCADA register nodes, limited to abnormal or first few normals to keep graph readable
+    scadaRegisters
+      .filter((r, idx) => r.status !== 'NORMAL' || idx < 8)
+      .forEach(reg => {
+        const id = `REG-${reg.address}`;
+        const color = reg.status === 'CRITICAL' ? '#ff2244' : reg.status === 'WARNING' ? '#ffb300' : '#4aa3ff';
+        addNode({ id, label: `${reg.name}: ${reg.value}${reg.unit}`, type: 'SCADA', color });
+        edges.push({ from: id, to: reg.zone, label: 'measures' });
+      });
+
     // Alert nodes
     this.currentAlerts.forEach(alert => {
-      nodes.push({ id: alert.id, label: alert.name, type: 'RISK', color: alert.severity === 'CRITICAL' ? '#ff2244' : '#ff8844' });
+      addNode({ id: alert.id, label: alert.name, type: 'RISK', color: alert.severity === 'CRITICAL' ? '#ff2244' : '#ff8844' });
       (alert.affectedZones || []).forEach(z => {
         edges.push({ from: alert.id, to: z, label: 'risk_in', color: '#ff2244' });
       });

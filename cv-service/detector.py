@@ -53,10 +53,14 @@ class YOLODetector:
         self.model_name = self.cfg.get("model", "yolov8n.pt")
         self.ppe_model_path = self.cfg.get("ppe_model", None)
         self.smoke_cfg = config.get("smoke_detection", {})
+        self.mock_mode = config.get("_mock_mode", False)
 
         self.model = None
         self.ppe_model = None
-        self._load_models()
+        if self.mock_mode:
+            logger.info("Mock mode enabled. Skipping YOLO model loading.")
+        else:
+            self._load_models()
 
     def _load_models(self):
         """Load YOLOv8 model(s). Downloads automatically from Ultralytics."""
