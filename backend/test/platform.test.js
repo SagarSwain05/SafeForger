@@ -171,3 +171,21 @@ test('knowledge graph snapshot has typed nodes and edges', async () => {
   ['ZONE', 'SENSOR', 'PERMIT', 'CCTV'].forEach(t => assert.ok(types.has(t), `missing ${t}`));
   assert.ok(body.edges.length > 10);
 });
+
+test('a second critical incident extends the active emergency and suspends its permits', async () => {
+  await api('/demo/kill-chain', { method: 'POST', body: { step: 'reset' } });
+  // Incident 1: fire on CCTV in the loading bay → automatic emergency
+  await api('/vision/detections', { method: 'POST', body: visionPayload({ camera_id: 'CAM-05', workers: [], fire_detected: true, fire_confidence: 0.8, events: [{ type: 'FIRE' }] }) });
+  assert.deepEqual((await api('/emergency/state')).body.affectedZones, ['Z-13']);
+  // Incident 2: kill chain in the CDU while the emergency is active
+  platform.sensorSim.setScenario('KILL_CHAIN');
+  fastForward(40);
+  await api('/demo/kill-chain', { method: 'POST', body: { step: 'permit' } });
+  const em = (await api('/emergency/state')).body;
+  assert.ok(em.affectedZones.includes('Z-01'), `zones ${em.affectedZones}`);
+  const hot = (await api('/permits')).body.find(p => p.type === 'HOT_WORK');
+  assert.equal(hot.status, 'SUSPENDED');
+  assert.ok(em.timeline.some(e => e.title.includes('EXTENDED')));
+  await api('/demo/kill-chain', { method: 'POST', body: { step: 'reset' } });
+  assert.equal((await api('/vision/state')).body.camerasOnline, 0, 'demo reset clears camera state');
+});

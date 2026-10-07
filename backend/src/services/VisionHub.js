@@ -194,6 +194,13 @@ class VisionHub {
     }
   }
 
+  /** Forget all camera state (demo reset). */
+  reset() {
+    for (const zone of Object.keys(this.byZone)) this.io?.emit('cv:stale', { zone });
+    this.byZone = {};
+    this.byCamera = {};
+  }
+
   /** Live (non-stale) state per zone — consumed by the risk engine, graph and heatmap. */
   liveByZone() {
     const now = Date.now();

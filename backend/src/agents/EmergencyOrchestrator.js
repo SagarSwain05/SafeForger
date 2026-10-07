@@ -36,6 +36,24 @@ class EmergencyOrchestrator {
     return !(key === this.lastAutoKey && Date.now() - this.lastAutoAt < 5 * 60000);
   }
 
+  /**
+   * A second critical condition during an active emergency: widen the response to the new
+   * zones (suspend their permits, evacuate) instead of ignoring it. Returns true if extended.
+   */
+  extend(zones, cause, key = null) {
+    if (!this.state.active) return false;
+    const fresh = (zones || []).filter(z => z && !this.state.affectedZones.includes(z));
+    if (!fresh.length) return false;
+    if (key) { this.lastAutoKey = key; this.lastAutoAt = Date.now(); }
+    this.state.affectedZones.push(...fresh);
+    const names = fresh.map(z => `${this.zones[z]?.name || z} (${z})`).join(', ');
+    const toSuspend = this.getPermits({ status: 'ACTIVE' }).filter(p => fresh.includes(p.zone));
+    toSuspend.forEach(p => this.suspendPermit(p.id));
+    this.state.suspendedPermits.push(...toSuspend.map(p => p.id));
+    this._event('⚠️ EMERGENCY EXTENDED', `${cause}. Added ${names}${toSuspend.length ? `; suspended ${toSuspend.map(p => p.id).join(', ')}` : ''}. Evacuation extended.`);
+    return true;
+  }
+
   async trigger(level, cause, affectedZones, sensorSnapshot, { auto = false, key = null } = {}) {
     if (this.state.active) return this.state;
     if (auto) { this.lastAutoKey = key; this.lastAutoAt = Date.now(); }

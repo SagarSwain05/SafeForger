@@ -137,8 +137,11 @@ function createPlatform() {
 
     // Autonomous reflex: critical compound risk in a red zone → emergency response
     const critical = risk.alerts.find(a => a.severity === 'CRITICAL' && a.affectedZones.some(z => (risk.zoneScores[z]?.score || 0) >= 80));
-    if (critical && emergency.shouldAutoTrigger(critical.id)) {
-      emergency.trigger('LEVEL_2', `${critical.name}: ${critical.details}`, critical.affectedZones, state.sensors, { auto: true, key: critical.id });
+    if (critical) {
+      if (emergency.getState().active) emergency.extend(critical.affectedZones, critical.name, critical.id);
+      else if (emergency.shouldAutoTrigger(critical.id)) {
+        emergency.trigger('LEVEL_2', `${critical.name}: ${critical.details}`, critical.affectedZones, state.sensors, { auto: true, key: critical.id });
+      }
     }
     return risk;
   }
@@ -158,7 +161,9 @@ function createPlatform() {
   }
 
   vision.onFire((d) => {
-    if (config.vision.autoEmergencyOnFire && emergency.shouldAutoTrigger(`FIRE:${d.zone}`)) {
+    if (!config.vision.autoEmergencyOnFire) return;
+    if (emergency.getState().active) emergency.extend([d.zone], `Fire detected on CCTV ${d.camera_id}`, `FIRE:${d.zone}`);
+    else if (emergency.shouldAutoTrigger(`FIRE:${d.zone}`)) {
       emergency.trigger('LEVEL_2', `Fire detected on CCTV ${d.camera_id} in ${d.zone_name}`, [d.zone], state.sensors, { auto: true, key: `FIRE:${d.zone}` });
     }
   });
@@ -347,6 +352,8 @@ function createPlatform() {
       setScenario('NORMAL');
       permitStore.resetPermits();
       emergency.reset();
+      emergency.lastAutoKey = null;
+      vision.reset();
       alerts.alerts.filter(a => a.status !== 'RESOLVED').forEach(a => alerts.resolve(a.id, 'Demo reset'));
       broadcastPermits();
       recomputeRisk();
