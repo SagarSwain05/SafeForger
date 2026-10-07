@@ -1,177 +1,152 @@
-// Emergency Response Orchestrator — Autonomous response on critical trigger
-const { generateWithFallback } = require('./geminiService');
-const { getPermits } = require('../data/permitStore');
+// Emergency Response Orchestrator — autonomous response once a critical trigger is confirmed:
+// declare → alarm/PA → suspend permits in affected zones → notify responders → preserve
+// evidence (sensors, permits, CCTV frames, alerts) → generate a statutory preliminary report.
+const llm = require('../services/llm');
 
-let emergencyState = {
-  active: false,
-  level: null,
-  triggeredAt: null,
-  triggeredBy: null,
-  affectedZones: [],
-  timeline: [],
-  evidenceSnapshot: null,
-  reportGenerated: false,
-  report: null
-};
+const blank = () => ({
+  active: false, level: null, triggeredAt: null, triggeredBy: null, auto: false, affectedZones: [],
+  timeline: [], evidenceSnapshot: null, suspendedPermits: [], reportGenerated: false, report: null,
+});
 
 class EmergencyOrchestrator {
-  constructor(io) {
+  constructor({ io, getPermits, suspendPermit, getVision, getAlerts, raiseAlert, layout }) {
     this.io = io;
+    this.getPermits = getPermits;
+    this.suspendPermit = suspendPermit;
+    this.getVision = getVision || (() => ({}));
+    this.getAlerts = getAlerts || (() => []);
+    this.raiseAlert = raiseAlert || (() => {});
+    this.zones = Object.fromEntries((layout?.zones || []).map(z => [z.id, z]));
+    this.state = blank();
+    this.timers = [];
+    this.lastAutoKey = null;
+    this.lastAutoAt = 0;
   }
 
-  async trigger(level, cause, affectedZones, sensorSnapshot) {
-    if (emergencyState.active) return emergencyState;
+  _push() { this.io?.emit('emergency:state', this.state); }
+  _event(title, description) {
+    this.state.timeline.push({ title, description, timestamp: new Date().toISOString() });
+    this._push();
+  }
+  _later(ms, fn) { this.timers.push(setTimeout(fn, ms)); }
 
-    const now = new Date().toISOString();
-    emergencyState = {
-      active: true,
-      level, // 'LEVEL_1', 'LEVEL_2', 'LEVEL_3'
-      triggeredAt: now,
-      triggeredBy: cause,
-      affectedZones,
-      timeline: [],
-      evidenceSnapshot: null,
-      reportGenerated: false,
-      report: null
-    };
+  /** Auto-trigger guard: one automatic declaration per cause key every 5 minutes. */
+  shouldAutoTrigger(key) {
+    if (this.state.active) return false;
+    return !(key === this.lastAutoKey && Date.now() - this.lastAutoAt < 5 * 60000);
+  }
 
-    // Autonomous response sequence
-    this._addEvent('🚨 EMERGENCY DECLARED', `Level: ${level} | Cause: ${cause}`);
-    
-    setTimeout(() => {
-      this._addEvent('📢 PA SYSTEM ACTIVATED', 'Plant-wide emergency announcement broadcast');
-      this.io?.emit('emergency:state', emergencyState);
-    }, 500);
+  async trigger(level, cause, affectedZones, sensorSnapshot, { auto = false, key = null } = {}) {
+    if (this.state.active) return this.state;
+    if (auto) { this.lastAutoKey = key; this.lastAutoAt = Date.now(); }
+    const zones = (affectedZones || []).filter(Boolean);
+    const zoneNames = zones.map(z => `${this.zones[z]?.name || z} (${z})`).join(', ') || 'plant-wide';
+    this.state = { ...blank(), active: true, level, auto, triggeredAt: new Date().toISOString(), triggeredBy: cause, affectedZones: zones };
 
-    setTimeout(() => {
-      this._addEvent('🏃 EVACUATION INITIATED', `Zones affected: ${affectedZones.join(', ')}. All non-essential personnel to Assembly Point A`);
-      this.io?.emit('emergency:state', emergencyState);
-    }, 1200);
+    this._event('🚨 EMERGENCY DECLARED', `${level}${auto ? ' (automatic)' : ''} — ${cause}`);
+    this.io?.emit('emergency:triggered', { level, cause, affectedZones: zones, auto });
+    this.raiseAlert({ type: 'EMERGENCY', severity: 'CRITICAL', key: 'EMERGENCY:ACTIVE', zone: zones[0], title: `Emergency ${level} declared`, message: `${cause}. Affected: ${zoneNames}.`, source: auto ? 'auto' : 'manual' });
 
-    setTimeout(() => {
-      this._addEvent('📱 ALERTS DISPATCHED', 'SMS sent to: Safety Officer, Plant Manager, DGMS Regional Office, Fire Station');
-      this.io?.emit('emergency:state', emergencyState);
-    }, 2000);
-
-    setTimeout(() => {
-      // Preserve evidence
-      emergencyState.evidenceSnapshot = {
-        timestamp: now,
-        sensors: sensorSnapshot,
-        activePermits: getPermits({ status: 'ACTIVE' }).map(p => ({ id: p.id, type: p.type, zone: p.zone })),
-        frozenAt: new Date().toISOString()
+    this._later(500, () => this._event('📢 ALARM & PA ACTIVATED', `Zone alarm sounded; evacuation announcement for ${zoneNames}.`));
+    this._later(1200, () => {
+      const toSuspend = this.getPermits({ status: 'ACTIVE' }).filter(p => !zones.length || zones.includes(p.zone));
+      toSuspend.forEach(p => this.suspendPermit(p.id));
+      this.state.suspendedPermits = toSuspend.map(p => p.id);
+      this._event('⛔ PERMITS SUSPENDED', toSuspend.length ? `Suspended ${toSuspend.map(p => `${p.id} (${p.type})`).join(', ')}.` : 'No active permits in the affected zones.');
+    });
+    this._later(2000, () => this._event('🏃 EVACUATION INITIATED', `Personnel in ${zoneNames} directed to Emergency Assembly (Z-15). Head-count in progress.`));
+    this._later(2800, () => this._event('📱 RESPONDERS NOTIFIED', 'Fire & Safety, Safety Officer, Shift Supervisor and Plant Manager paged (dashboard + configured channels).'));
+    this._later(3600, () => {
+      const vision = this.getVision();
+      this.state.evidenceSnapshot = {
+        frozenAt: new Date().toISOString(),
+        sensors: (sensorSnapshot || []).map(({ history, ...s }) => s),
+        activePermits: this.getPermits({ status: 'ACTIVE' }).map(p => ({ id: p.id, type: p.type, zone: p.zone })),
+        suspendedPermits: this.state.suspendedPermits,
+        cctv: Object.values(vision).map(d => ({ camera: d.camera_id, zone: d.zone, workers: d.worker_count, ppeViolations: d.ppe_violations, fire: d.fire_detected, smoke: d.smoke_detected, at: d.timestamp })),
+        alerts: this.getAlerts().slice(0, 10).map(a => ({ id: a.id, type: a.type, severity: a.severity, title: a.title, zone: a.zone, createdAt: a.createdAt, hasEvidence: a.hasEvidence })),
       };
-      this._addEvent('🗄️ EVIDENCE PRESERVED', 'Sensor readings, permit logs, and CCTV timestamps frozen for regulatory compliance');
-      this.io?.emit('emergency:state', emergencyState);
-    }, 3000);
-
-    setTimeout(() => {
-      this._addEvent('🚒 FIRE & RESCUE NOTIFIED', 'Emergency response team mobilized. ETA: 4 minutes');
-      this.io?.emit('emergency:state', emergencyState);
-    }, 4000);
-
-    setTimeout(async () => {
-      this._addEvent('📋 GENERATING INCIDENT REPORT', 'DGMS/Factory Act compliant preliminary report in progress...');
-      this.io?.emit('emergency:state', emergencyState);
-      
-      const report = await this._generateReport(level, cause, affectedZones, sensorSnapshot);
-      emergencyState.report = report;
-      emergencyState.reportGenerated = true;
-      this._addEvent('✅ REPORT READY', 'Preliminary DGMS/Factory Act compliant incident report generated');
-      this.io?.emit('emergency:state', emergencyState);
+      this._event('🗄️ EVIDENCE PRESERVED', `Frozen: ${this.state.evidenceSnapshot.sensors.length} sensor readings, ${this.state.evidenceSnapshot.cctv.length} CCTV states, ${this.state.evidenceSnapshot.alerts.length} alerts (${this.state.evidenceSnapshot.alerts.filter(a => a.hasEvidence).length} with CCTV frames).`);
+    });
+    this._later(4500, () => this._event('🚒 FIRE & RESCUE MOBILISED', 'Site fire crew dispatched; external fire service on standby.'));
+    this._later(5500, async () => {
+      this._event('📋 GENERATING INCIDENT REPORT', 'Drafting Factories Act / OISD-aligned preliminary report…');
+      const report = await this._report(level, cause, zones, sensorSnapshot);
+      if (!this.state.active) return;   // reset while generating
+      this.state.report = report;
+      this.state.reportGenerated = true;
+      this._event('✅ REPORT READY', `Preliminary incident report ${report.reportId} generated (${report.generatedBy}).`);
       this.io?.emit('emergency:report', report);
-    }, 6000);
-
-    this.io?.emit('emergency:triggered', { level, cause, affectedZones });
-    return emergencyState;
+    });
+    return this.state;
   }
 
-  async _generateReport(level, cause, affectedZones, sensorSnapshot) {
-    const sensorsText = (sensorSnapshot || [])
-      .filter(s => s.status !== 'NORMAL')
-      .map(s => `${s.id}: ${s.value}${s.unit} [${s.status}]`)
-      .join(', ');
-    const activePermits = getPermits({ status: 'ACTIVE' });
-    const permitsText = activePermits.map(p => `${p.id} (${p.type} in ${p.zone})`).join(', ');
-
-    const prompt = `Generate a DGMS/Factory Act compliant preliminary incident report for a petrochemical plant emergency.
-
-INCIDENT DETAILS:
-- Emergency Level: ${level}
-- Cause: ${cause}
-- Time: ${new Date().toISOString()}
-- Plant: Visakhapatnam Refinery Unit-3
-- Affected Zones: ${affectedZones.join(', ')}
-- Abnormal Sensor Readings: ${sensorsText}
-- Active Permits at Time of Incident: ${permitsText}
-
-Generate a formal preliminary incident report with these sections:
-1. INCIDENT SUMMARY (2-3 sentences)
-2. IMMEDIATE ACTIONS TAKEN (bullet points)
-3. REGULATORY NOTIFICATIONS REQUIRED (list agencies with timeline)
-4. PRELIMINARY ROOT CAUSE INDICATORS
-5. EVIDENCE PRESERVED
-6. NEXT STEPS (within 24 hours)
-
-Use formal language. Cite OISD/DGMS/Factory Act references where applicable. Keep under 300 words.`;
-
-    const aiReport = await generateWithFallback(prompt);
-    
+  async _report(level, cause, zones, sensors) {
+    const abnormal = (sensors || []).filter(s => s.status !== 'NORMAL').map(s => `${s.id} ${s.type} ${s.value}${s.unit} [${s.status}]`).join(', ') || 'none in alarm';
+    const vision = Object.values(this.getVision()).filter(d => d.fire_detected || d.smoke_detected || d.ppe_violations)
+      .map(d => `${d.camera_id} in ${d.zone}: ${[d.fire_detected && 'fire', d.smoke_detected && 'smoke', d.ppe_violations && `${d.ppe_violations} PPE violation(s)`].filter(Boolean).join(', ')}`).join('; ') || 'no CCTV anomalies';
+    const prompt = `Write a formal PRELIMINARY INCIDENT REPORT for an Indian process plant (Visakhapatnam Refinery Unit-3, demo site).
+Facts (use only these):
+- Emergency level: ${level}; declared ${new Date().toISOString()}${this.state.auto ? ' automatically by the SafeForge risk engine' : ' manually'}
+- Trigger: ${cause}
+- Affected zones: ${zones.map(z => `${this.zones[z]?.name || z} (${z})`).join(', ') || 'plant-wide'}
+- Sensors in alarm: ${abnormal}
+- CCTV observations: ${vision}
+- Permits suspended: ${this.state.suspendedPermits.join(', ') || 'none'}
+Sections (plain text, numbered): 1 Incident summary, 2 Immediate actions taken, 3 Statutory notifications required (Factories Act 1948 s.88 and state rules; PESO/OISD where relevant) with timelines, 4 Preliminary causal indicators, 5 Evidence preserved, 6 Next steps (24 h). Under 300 words. Plain text without markdown symbols. Do not invent injuries or numbers not given.`;
+    const ai = await llm.generate(prompt, { tier: 'quality', maxOutputTokens: 1200 });
     return {
       title: 'PRELIMINARY INCIDENT REPORT',
       reportId: `INC-${Date.now()}`,
       generatedAt: new Date().toISOString(),
+      generatedBy: ai ? 'AI (Gemini) from preserved evidence' : 'rule-based template',
       classification: level,
-      plant: 'Visakhapatnam Refinery Unit-3',
-      content: aiReport || this._getFallbackReport(level, cause, affectedZones),
-      regulatory: ['DGMS Regional Office — Visakhapatnam', 'Factory Inspector', 'PESO (Petroleum & Explosives Safety Organisation)'],
-      status: 'PRELIMINARY'
+      plant: 'Visakhapatnam Refinery Unit-3 (demo site)',
+      content: ai || this._fallback(level, cause, zones, abnormal, vision),
+      regulatory: ['Factories Act 1948, Section 88 — notice of accident', 'Chief Inspector of Factories (state)', 'PESO / OISD (petroleum installations)'],
+      status: 'PRELIMINARY',
     };
   }
 
-  _getFallbackReport(level, cause, affectedZones) {
-    return `PRELIMINARY INCIDENT REPORT — ${new Date().toLocaleString()}
+  _fallback(level, cause, zones, abnormal, vision) {
+    const t = new Date().toLocaleString('en-IN');
+    return `PRELIMINARY INCIDENT REPORT — ${t}
 
 1. INCIDENT SUMMARY
-An emergency condition (${level}) was triggered at Visakhapatnam Refinery Unit-3 at ${new Date().toLocaleString()}. The triggering condition was: ${cause}. Affected zones: ${affectedZones.join(', ')}.
+An emergency (${level}) was declared at Visakhapatnam Refinery Unit-3 at ${t}. Trigger: ${cause}. Affected zones: ${zones.join(', ') || 'plant-wide'}.
 
 2. IMMEDIATE ACTIONS TAKEN
-• PA system activated — plant-wide evacuation announced
-• All non-essential personnel evacuated to Assembly Point A
-• Emergency response team notified
-• SCADA system set to safe state
-• All work permits suspended
+• Zone alarm and PA evacuation announcement
+• Permits suspended: ${this.state.suspendedPermits.join(', ') || 'none active in the affected zones'}
+• Personnel evacuated to Emergency Assembly (Z-15); head-count initiated
+• Fire & Safety, Safety Officer and Shift Supervisor notified
 
-3. REGULATORY NOTIFICATIONS REQUIRED
-• DGMS Regional Office — within 2 hours (per DGMS Circular)
-• Chief Inspector of Factories — within 24 hours (Factory Act Section 88)
-• State Pollution Control Board — if gas release detected
+3. STATUTORY NOTIFICATIONS REQUIRED
+• Inspector of Factories — per Factories Act 1948, Section 88 and state rules, if reportable injury occurs
+• PESO / OISD — for petroleum installations, as applicable
 
-4. PRELIMINARY ROOT CAUSE INDICATORS
-${cause}. Full investigation per OISD investigation protocol to follow.
+4. PRELIMINARY CAUSAL INDICATORS
+Sensors in alarm: ${abnormal}. CCTV: ${vision}.
 
 5. EVIDENCE PRESERVED
-Sensor readings, permit logs, CCTV timestamps preserved at trigger time.
+Sensor snapshot, permit register, CCTV detection states and alert frames frozen at trigger time.
 
-6. NEXT STEPS
-• Site preservation for investigation
-• Worker head-count verification
-• DGMS joint investigation initiation`;
+6. NEXT STEPS (24 h)
+• Preserve the scene; joint investigation
+• Verify head-count and medical status
+• Root-cause analysis before permits are re-issued`;
   }
 
   reset() {
-    emergencyState = {
-      active: false, level: null, triggeredAt: null, triggeredBy: null,
-      affectedZones: [], timeline: [], evidenceSnapshot: null, reportGenerated: false, report: null
-    };
-    return emergencyState;
+    this.timers.forEach(clearTimeout);
+    this.timers = [];
+    this.state = blank();
+    this._push();
+    this.io?.emit('emergency:reset', this.state);
+    return this.state;
   }
 
-  getState() { return emergencyState; }
-
-  _addEvent(title, description) {
-    emergencyState.timeline.push({ title, description, timestamp: new Date().toISOString() });
-  }
+  getState() { return this.state; }
 }
 
 module.exports = EmergencyOrchestrator;

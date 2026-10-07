@@ -1,144 +1,73 @@
 """
-SafeForger MQTT Client — Publishes CV detections to MQTT broker
+SafeForge MQTT Client — publishes vision detections to the plant MQTT bus (on-premise).
 Topics:
-  plant/{zone_id}/vision   — detection results per zone
-  plant/cv/aggregate       — cross-camera aggregate stats
+  plant/{zone_id}/vision   — detection payload per zone (consumed by backend ingestion)
+  plant/cv/{camera_id}     — per-camera stream
   plant/cv/heartbeat       — service health ping
 """
 import json
-import time
 import logging
-import threading
-from typing import Optional, Dict, Any
+import time
+from typing import Any
 
 logger = logging.getLogger("mqtt_client")
 
 
 class SafeForgerMqttClient:
     def __init__(self, config: dict):
-        self.cfg = config.get("mqtt", {})
-        self.host = self.cfg.get("broker_host", "localhost")
-        self.port = self.cfg.get("broker_port", 1883)
-        self.client_id = self.cfg.get("client_id", "safeforger-cv")
-        self.reconnect_delay = self.cfg.get("reconnect_delay_s", 5)
+        cfg = config.get("mqtt", {})
+        self.host = cfg.get("broker_host", "localhost")
+        self.port = cfg.get("broker_port", 1883)
+        self.client_id = cfg.get("client_id", "safeforge-cv")
         self.client = None
         self._connected = False
-        self._connect()
-
-    def _connect(self):
         try:
             import paho.mqtt.client as mqtt_lib
-            self.client = mqtt_lib.Client(client_id=self.client_id)
+            # paho-mqtt ≥ 2.0 requires an explicit callback API version
+            self.client = mqtt_lib.Client(mqtt_lib.CallbackAPIVersion.VERSION2, client_id=self.client_id)
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
-            self.client.connect(self.host, self.port, keepalive=60)
-            self.client.loop_start()
-            logger.info(f"Connecting to MQTT broker at {self.host}:{self.port}")
+            self.client.reconnect_delay_set(min_delay=1, max_delay=30)
+            self.client.connect_async(self.host, self.port, keepalive=60)
+            self.client.loop_start()  # handles reconnects in the background
+            logger.info("Connecting to MQTT broker at %s:%s", self.host, self.port)
         except ImportError:
             logger.error("paho-mqtt not installed. Run: pip install paho-mqtt")
         except Exception as e:
-            logger.warning(f"MQTT connection failed: {e}. Will retry in {self.reconnect_delay}s")
-            threading.Timer(self.reconnect_delay, self._connect).start()
+            logger.warning("MQTT setup failed: %s", e)
 
-    def _on_connect(self, client, userdata, flags, rc):
-        if rc == 0:
-            self._connected = True
-            logger.info("MQTT connected successfully")
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
+        self._connected = not reason_code.is_failure
+        if self._connected:
+            logger.info("MQTT connected")
             self.publish_heartbeat("CONNECTED")
         else:
-            logger.warning(f"MQTT connection returned code {rc}")
+            logger.warning("MQTT connection refused: %s", reason_code)
 
-    def _on_disconnect(self, client, userdata, rc):
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
         self._connected = False
-        logger.warning(f"MQTT disconnected (rc={rc}). Reconnecting in {self.reconnect_delay}s")
-        threading.Timer(self.reconnect_delay, self._connect).start()
+        logger.warning("MQTT disconnected (%s) — paho will reconnect", reason_code)
 
     def publish(self, topic: str, payload: Any, qos: int = 0):
-        """Publish JSON payload to topic."""
         if not self._connected or self.client is None:
-            logger.debug(f"MQTT not connected — dropping message on {topic}")
             return
-        try:
-            message = json.dumps(payload) if not isinstance(payload, str) else payload
-            result = self.client.publish(topic, message, qos=qos)
-            if result.rc != 0:
-                logger.warning(f"Publish to {topic} failed: rc={result.rc}")
-        except Exception as e:
-            logger.warning(f"MQTT publish error: {e}")
+        message = payload if isinstance(payload, str) else json.dumps(payload)
+        self.client.publish(topic, message, qos=qos)
 
-    def publish_vision_detection(
-        self,
-        camera_id: str,
-        zone_id: str,
-        detections: dict,
-        frame_number: int = 0,
-    ):
-        """Publish structured detection event to plant zone topic."""
-        payload = {
-            "camera_id": camera_id,
-            "zone": zone_id,
-            "frame_number": frame_number,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "worker_count": detections.get("worker_count", 0),
-            "ppe_violations": detections.get("ppe_violation_count", 0),
-            "smoke_detected": detections.get("smoke_detected", False),
-            "detections": self._serialize_detections(detections),
-            "mapped_positions": detections.get("mapped_positions", []),
-            "zones_occupied": detections.get("zones_occupied", []),
-        }
-        topic = f"plant/{zone_id}/vision"
-        self.publish(topic, payload)
-
-        # Also publish to per-camera topic for multi-camera aggregation
-        self.publish(f"plant/cv/{camera_id}", payload)
-
-    def _serialize_detections(self, detections: dict) -> list:
-        """Compact format for MQTT payload."""
-        out = []
-        for person in detections.get("persons", []):
-            out.append({
-                "id": person.get("id"),
-                "type": "person",
-                "bbox": person.get("bbox"),
-                "confidence": person.get("confidence"),
-                "has_helmet": person.get("has_helmet"),
-                "has_vest": person.get("has_vest"),
-                "plant_coords": person.get("plant_coords"),
-                "zone_id": person.get("zone_id"),
-            })
-        for viol in detections.get("violations", []):
-            out.append({
-                "type": "violation",
-                "class": viol.get("class"),
-                "confidence": viol.get("confidence"),
-                "bbox": viol.get("bbox"),
-            })
-        return out
-
-    def publish_aggregate(self, camera_stats: Dict[str, dict]):
-        """Publish cross-camera aggregate stats."""
-        total_workers = sum(s.get("worker_count", 0) for s in camera_stats.values())
-        total_violations = sum(s.get("ppe_violations", 0) for s in camera_stats.values())
-        smoke_zones = [cid for cid, s in camera_stats.items() if s.get("smoke_detected")]
-        payload = {
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "total_workers_detected": total_workers,
-            "total_ppe_violations": total_violations,
-            "smoke_detected_cameras": smoke_zones,
-            "per_camera": camera_stats,
-        }
-        self.publish("plant/cv/aggregate", payload)
+    def publish_vision(self, payload: dict):
+        # Evidence images are large; MQTT consumers get the event list without them
+        slim = {k: v for k, v in payload.items() if k != "evidence"}
+        self.publish(f"plant/{payload['zone']}/vision", slim)
+        self.publish(f"plant/cv/{payload['camera_id']}", slim)
 
     def publish_heartbeat(self, status: str = "OK"):
         self.publish("plant/cv/heartbeat", {
-            "service": "safeforger-cv",
-            "status": status,
+            "service": "safeforge-cv", "status": status,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
 
     def disconnect(self):
         if self.client:
-            self._connected = False
             self.client.loop_stop()
             self.client.disconnect()
 

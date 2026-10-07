@@ -1,357 +1,241 @@
-// Compound Risk Orchestrator — The Brain of SafeForger
-// Cross-correlates sensor readings, permits, workers, and shift data to detect compound risks
-const { generateWithFallback } = require('./geminiService');
-const { getActivePermitsByZone, detectSimops } = require('../data/permitStore');
+// Compound Risk Orchestrator — the reasoning core of SafeForge.
+//
+// Fuses sensors (+ trend forecasts), permits, CCTV vision, worker locations and shift context
+// through spatial rules evaluated over the knowledge graph (same / adjacent zones). Produces:
+//   • compound-risk alerts with an explainable graph chain and regulation references
+//   • a 0–100 risk score per zone (drives the heatmap) and for the plant
+//   • lead time: minutes until a worsening sensor near active work reaches its alarm level
+// AI recommendations are generated asynchronously and cached, so analysis stays real-time.
+const llm = require('../services/llm');
+const { detectSimops } = require('../data/permitStore');
 
-const RISK_RULES = [
+const FLAMMABLE = ['CH4', 'H2S'];
+const HAZARD_BASE = { CRITICAL: 10, HIGH: 8, MEDIUM: 5, LOW: 2, SAFE: 0 };
+const PERMIT_WEIGHT = { HOT_WORK: 12, CONFINED_SPACE: 10, RADIATION: 8, ELECTRICAL_ISOLATION: 5, HEIGHT_WORK: 5, COLD_WORK: 3 };
+const RULE_WEIGHT = { CRITICAL: 45, HIGH: 25, MEDIUM: 12 };
+
+const RULES = [
   {
-    id: 'CR-001',
-    name: 'Hot Work + Gas Accumulation',
-    severity: 'CRITICAL',
-    regulation: 'OISD-STD-105 Section 4.2 + DGMS Circular 6/2018',
-    check: (sensors, permits) => {
-      const hotWorkZones = Object.entries(permits)
-        .filter(([z, ps]) => ps.some(p => p.type === 'HOT_WORK'))
-        .map(([z]) => z);
-      const gasReadings = sensors.filter(s =>
-        (s.type === 'CH4' || s.type === 'H2S') &&
-        hotWorkZones.includes(s.zone) &&
-        s.value > (s.warningThreshold * 0.6)
-      );
-      if (gasReadings.length > 0) {
-        return {
-          triggered: true,
-          details: `Hot work active in ${hotWorkZones.join(', ')} with gas reading at ${gasReadings[0].value.toFixed(1)} ${gasReadings[0].unit} (${((gasReadings[0].value / gasReadings[0].warningThreshold) * 100).toFixed(0)}% of warning threshold)`,
-          affectedZones: hotWorkZones,
-          sensors: gasReadings.map(s => s.id)
-        };
-      }
-      return { triggered: false };
-    }
-  },
-  {
-    id: 'CR-002',
-    name: 'Confined Space + O2 Depletion',
-    severity: 'CRITICAL',
-    regulation: 'OISD-GDN-169 + Factory Act Section 36',
-    check: (sensors, permits) => {
-      const csZones = Object.entries(permits)
-        .filter(([z, ps]) => ps.some(p => p.type === 'CONFINED_SPACE'))
-        .map(([z]) => z);
-      const o2Sensors = sensors.filter(s =>
-        s.type === 'O2' &&
-        csZones.includes(s.zone) &&
-        s.value < 20.0
-      );
-      if (o2Sensors.length > 0) {
-        return {
-          triggered: true,
-          details: `Confined space entry active with O2 at ${o2Sensors[0].value.toFixed(1)}% (safe minimum 19.5%). Immediate re-testing required.`,
-          affectedZones: csZones,
-          sensors: o2Sensors.map(s => s.id)
-        };
-      }
-      return { triggered: false };
-    }
-  },
-  {
-    id: 'CR-003',
-    name: 'Simultaneous Operations Conflict',
-    severity: 'HIGH',
-    regulation: 'DGMS Circular 6/2018 — SIMOPS Risk Assessment Required',
-    check: (sensors, permits) => {
-      const simops = detectSimops();
-      if (simops.length > 0) {
-        return {
-          triggered: true,
-          details: `${simops.length} simultaneous operation conflict(s) detected: ${simops.map(s => s.reason).join('; ')}`,
-          affectedZones: [],
-          conflicts: simops
-        };
-      }
-      return { triggered: false };
-    }
-  },
-  {
-    id: 'CR-004',
-    name: 'Rising Gas + Multiple Active Permits',
-    severity: 'HIGH',
-    regulation: 'OISD-STD-105 + OISD-GDN-192',
-    check: (sensors, permits) => {
-      const activeZones = Object.keys(permits).length;
-      const risingGas = sensors.filter(s =>
-        (s.type === 'CH4' || s.type === 'H2S') &&
-        s.value > s.warningThreshold * 0.5 &&
-        s.value <= s.warningThreshold
-      );
-      if (risingGas.length >= 1 && activeZones >= 2) {
-        return {
-          triggered: true,
-          details: `Gas rising in ${risingGas.length} zone(s) while ${activeZones} permits are active. Below individual alarm thresholds but compound exposure requires immediate review.`,
-          affectedZones: [...new Set(risingGas.map(s => s.zone))],
-          sensors: risingGas.map(s => s.id)
-        };
-      }
-      return { triggered: false };
-    }
-  },
-  {
-    id: 'CR-005',
-    name: 'Extreme Temperature + Pressure',
-    severity: 'HIGH',
-    regulation: 'OISD-STD-118',
-    check: (sensors) => {
-      const highTemp = sensors.find(s => s.type === 'TEMP' && s.status === 'WARNING');
-      const highPress = sensors.find(s => s.type === 'PRESSURE' && s.status === 'WARNING');
-      if (highTemp && highPress) {
-        return {
-          triggered: true,
-          details: `Co-occurring high temperature (${highTemp.value.toFixed(1)}°C) and high pressure (${highPress.value.toFixed(1)} bar) detected. Potential runaway risk.`,
-          affectedZones: [highTemp.zone, highPress.zone],
-          sensors: [highTemp.id, highPress.id]
-        };
-      }
-      return { triggered: false };
-    }
-  },
-  {
-    id: 'CR-006',
-    name: 'PPE Violation + Active Permit',
-    severity: 'HIGH',
-    regulation: 'OISD-STD-105 + site PPE matrix',
-    check: (sensors, permits, context = {}) => {
-      const cvByZone = context.cvDetections ?? {};
-      const violations = Object.entries(cvByZone)
-        .map(([zone, d]) => ({
-          zone,
-          count: d.ppe_violations ?? d.ppeViolations ?? 0,
-          camera: d.camera_id ?? d.cameraId,
-        }))
-        .filter(v => v.count > 0 && (permits[v.zone] ?? []).length > 0);
-
-      if (violations.length > 0) {
-        return {
-          triggered: true,
-          details: `${violations.reduce((sum, v) => sum + v.count, 0)} PPE violation(s) detected by CCTV while permit work is active.`,
-          affectedZones: [...new Set(violations.map(v => v.zone))],
-          cameras: violations.map(v => v.camera).filter(Boolean),
-        };
-      }
-      return { triggered: false };
-    }
-  },
-  {
-    id: 'CR-007',
-    name: 'Visual Smoke + Process Hazard',
-    severity: 'CRITICAL',
-    regulation: 'OISD-STD-116 + emergency response plan',
-    check: (sensors, permits, context = {}) => {
-      const cvByZone = context.cvDetections ?? {};
-      const smokeZones = Object.entries(cvByZone)
-        .filter(([, d]) => d.smoke_detected || d.smokeDetected)
-        .map(([zone]) => zone);
-
-      if (smokeZones.length === 0) return { triggered: false };
-
-      const processHazards = sensors.filter(s =>
-        smokeZones.includes(s.zone) &&
-        (s.status === 'WARNING' || s.status === 'CRITICAL' || (permits[s.zone] ?? []).length > 0)
-      );
-
-      if (processHazards.length > 0 || smokeZones.some(z => (permits[z] ?? []).length > 0)) {
-        return {
-          triggered: true,
-          details: `CCTV smoke indication in ${smokeZones.join(', ')} with active process hazard or permit context. Dispatch field verification and isolate ignition sources.`,
-          affectedZones: smokeZones,
-          sensors: processHazards.map(s => s.id),
-        };
-      }
-      return { triggered: false };
-    }
-  }
-];
-
-class CompoundRiskOrchestrator {
-  constructor() {
-    this.currentAlerts = [];
-    this.alertHistory = [];
-    this.riskScore = 0;
-    this.overallStatus = 'SAFE';
-    this.lastSensorReadings = [];
-    this.lastContext = {};
-  }
-
-  async analyze(sensorReadings, context = {}) {
-    const permitsByZone = getActivePermitsByZone();
-    const triggeredRules = [];
-    this.lastSensorReadings = sensorReadings;
-    this.lastContext = context;
-
-    // Run all compound risk rules
-    for (const rule of RISK_RULES) {
-      try {
-        const result = rule.check(sensorReadings, permitsByZone, context);
-        if (result.triggered) {
-          triggeredRules.push({
-            ...rule,
-            ...result,
-            timestamp: new Date().toISOString(),
-            id: `ALERT-${rule.id}-${Date.now()}`
+    id: 'CR-001', name: 'Hot Work + Flammable Gas Build-up', severity: 'CRITICAL',
+    regulation: 'OISD-STD-105 (hot work) · Factories Act 1948, Section 36',
+    actions: ['Suspend the hot-work permit immediately and remove ignition sources', 'Isolate the gas source and ventilate', 'Re-test the atmosphere before work resumes'],
+    check: ({ sensors, permitsByZone, kg, fc }) => {
+      const hits = [];
+      for (const [zone, ps] of Object.entries(permitsByZone)) {
+        const hot = ps.filter(p => p.type === 'HOT_WORK');
+        if (!hot.length) continue;
+        const gas = sensors.filter(s => FLAMMABLE.includes(s.type) && kg.areAdjacent(zone, s.zone) &&
+          (s.value > 0.6 * s.warningThreshold || (fc[s.id]?.trend === 'WORSENING' && fc[s.id]?.etaWarningMin !== null && fc[s.id].etaWarningMin < 15)));
+        if (gas.length) {
+          const g = gas.sort((a, b) => b.value / b.warningThreshold - a.value / a.warningThreshold)[0];
+          hits.push({
+            zones: [...new Set([zone, ...gas.map(s => s.zone)])],
+            details: `Hot work ${hot.map(p => p.id).join(', ')} active in ${zone} while ${g.type} at ${g.id} (${g.zone}) reads ${g.value} ${g.unit} — ${Math.round(g.value / g.warningThreshold * 100)}% of its alarm level${fc[g.id]?.etaWarningMin ? `, alarm in ~${fc[g.id].etaWarningMin} min` : ''}. No single sensor is in alarm, but this is an ignition scenario.`,
+            sensors: gas.map(s => s.id), permits: hot.map(p => p.id),
           });
         }
-      } catch (err) {
-        console.error(`Rule ${rule.id} failed:`, err.message);
+      }
+      return hits;
+    },
+  },
+  {
+    id: 'CR-002', name: 'Confined Space Entry + Oxygen Depletion', severity: 'CRITICAL',
+    regulation: 'Factories Act 1948, Section 36 · OISD-GDN-169',
+    actions: ['Evacuate the confined space now; attendant to account for all entrants', 'Force-ventilate and re-test before re-entry'],
+    check: ({ sensors, permitsByZone, fc }) => {
+      const hits = [];
+      for (const [zone, ps] of Object.entries(permitsByZone)) {
+        const cs = ps.filter(p => p.type === 'CONFINED_SPACE');
+        if (!cs.length) continue;
+        const o2 = sensors.find(s => s.type === 'O2' && s.zone === zone && (s.value < 20.0 || (fc[s.id]?.trend === 'WORSENING' && fc[s.id]?.etaWarningMin !== null && fc[s.id].etaWarningMin < 20)));
+        if (o2) hits.push({ zones: [zone], details: `Confined-space entry ${cs.map(p => p.id).join(', ')} with O₂ at ${o2.value}% (safe minimum 19.5%)${fc[o2.id]?.trend === 'WORSENING' ? ' and falling' : ''}.`, sensors: [o2.id], permits: cs.map(p => p.id) });
+      }
+      return hits;
+    },
+  },
+  {
+    id: 'CR-003', name: 'Simultaneous Operations Conflict', severity: 'HIGH',
+    regulation: 'OISD-STD-105 (work permit system — simultaneous operations)',
+    actions: ['Hold one of the conflicting permits until a SIMOPS assessment is signed off'],
+    check: () => detectSimops().map(c => ({ zones: [...new Set(c.zones)], details: `SIMOPS: ${c.reason} (${c.permitA} / ${c.permitB}).`, permits: [c.permitA, c.permitB] })),
+  },
+  {
+    id: 'CR-004', name: 'Rising Gas Near Active Work', severity: 'HIGH',
+    regulation: 'OISD-STD-105 · Factories Act 1948, Section 36',
+    actions: ['Increase gas-test frequency at the work site', 'Brief permit holders and prepare to stop work'],
+    check: ({ sensors, permitsByZone, kg, fc }) => {
+      const hits = [];
+      const workZones = Object.keys(permitsByZone);
+      for (const s of sensors) {
+        if (!FLAMMABLE.includes(s.type) && s.type !== 'CO') continue;
+        const f = fc[s.id];
+        if (!(f?.trend === 'WORSENING' && s.value > 0.4 * s.warningThreshold && s.value < s.warningThreshold)) continue;
+        const near = workZones.filter(z => kg.areAdjacent(z, s.zone));
+        if (near.length) hits.push({ zones: [...new Set([s.zone, ...near])], details: `${s.type} at ${s.id} (${s.zone}) rising ${f.slopePerMin}/min to ${s.value} ${s.unit}${f.etaWarningMin ? ` — alarm in ~${f.etaWarningMin} min` : ''}, with permit work in ${near.join(', ')}.`, sensors: [s.id] });
+      }
+      return hits;
+    },
+  },
+  {
+    id: 'CR-005', name: 'High Temperature + High Pressure', severity: 'HIGH',
+    regulation: 'OISD-STD-116',
+    actions: ['Check relief systems and reduce unit throughput'],
+    check: ({ sensors, kg }) => {
+      const hot = sensors.filter(s => s.type === 'TEMP' && s.status !== 'NORMAL');
+      const press = sensors.filter(s => s.type === 'PRESSURE' && s.status !== 'NORMAL');
+      const hits = [];
+      hot.forEach(t => press.filter(p => kg.areAdjacent(t.zone, p.zone)).forEach(p => hits.push({ zones: [...new Set([t.zone, p.zone])], details: `Temperature ${t.value}°C (${t.zone}) with pressure ${p.value} bar (${p.zone}) — runaway risk.`, sensors: [t.id, p.id] })));
+      return hits;
+    },
+  },
+  {
+    id: 'CR-006', name: 'PPE Violation During Permit Work', severity: 'HIGH',
+    regulation: 'Factories Act 1948, Section 111 · OISD-STD-155',
+    actions: ['Stop the permit work until every worker wears the required PPE'],
+    check: ({ vision, permitsByZone }) => Object.entries(vision)
+      .filter(([zone, d]) => d.ppe_violations > 0 && (permitsByZone[zone] || []).length)
+      .map(([zone, d]) => ({ zones: [zone], details: `${d.ppe_violations} worker(s) on CCTV ${d.camera_id} missing required PPE while ${(permitsByZone[zone] || []).map(p => `${p.id} (${p.type})`).join(', ')} is active.`, cameras: [d.camera_id], permits: permitsByZone[zone].map(p => p.id) })),
+  },
+  {
+    id: 'CR-007', name: 'Visual Fire/Smoke + Process Hazard', severity: 'CRITICAL',
+    regulation: 'Factories Act 1948, Section 38 · OISD-STD-116',
+    actions: ['Raise the fire alarm and evacuate the zone', 'Stop all hot work plant-wide; isolate fuel sources'],
+    check: ({ vision, permitsByZone, sensors, kg, zones }) => Object.entries(vision)
+      .filter(([, d]) => d.fire_detected || d.smoke_detected)
+      .filter(([zone, d]) => d.fire_detected || (permitsByZone[zone] || []).length || ['CRITICAL', 'HIGH'].includes(zones[zone]?.hazardClass) ||
+        sensors.some(s => FLAMMABLE.includes(s.type) && kg.areAdjacent(zone, s.zone) && s.value > 0.4 * s.warningThreshold))
+      .map(([zone, d]) => ({ zones: [zone], details: `CCTV ${d.camera_id} shows ${[d.fire_detected && 'fire', d.smoke_detected && 'smoke'].filter(Boolean).join(' and ')} in ${zones[zone]?.name} (${zones[zone]?.hazardClass} hazard)${(permitsByZone[zone] || []).length ? ` with ${(permitsByZone[zone] || []).map(p => p.type).join(', ')} permit active` : ''}.`, cameras: [d.camera_id] })),
+  },
+  {
+    id: 'CR-008', name: 'Shift Handover With High-Risk Permits Open', severity: 'MEDIUM',
+    regulation: 'OISD-GDN-192 (shift handover)',
+    actions: ['Hold a joint handover walk-down of every open high-risk permit'],
+    check: ({ permitsByZone, shift }) => {
+      if (!shift?.nextChange) return [];
+      const mins = (Date.parse(shift.nextChange) - Date.now()) / 60000;
+      const risky = Object.values(permitsByZone).flat().filter(p => ['HOT_WORK', 'CONFINED_SPACE', 'RADIATION'].includes(p.type));
+      if (mins < 0 || mins > 30 || risky.length < 2) return [];
+      return [{ zones: [...new Set(risky.map(p => p.zone))], details: `Shift change in ${Math.round(mins)} min with ${risky.length} high-risk permits open.`, permits: risky.map(p => p.id) }];
+    },
+  },
+  {
+    id: 'CR-009', name: 'Workers Exposed to Critical Atmosphere', severity: 'CRITICAL',
+    regulation: 'Factories Act 1948, Section 41H · Section 36',
+    actions: ['Order immediate evacuation of the zone and account for all personnel'],
+    check: ({ sensors, workers }) => {
+      const crit = sensors.filter(s => s.status === 'CRITICAL' && s.type !== 'PRESSURE' && s.type !== 'TEMP');
+      return [...new Set(crit.map(s => s.zone))].map(zone => ({ zone, n: workers.filter(w => w.zoneId === zone).length }))
+        .filter(x => x.n > 0)
+        .map(x => ({ zones: [x.zone], details: `${x.n} worker(s) in ${x.zone} where ${crit.filter(s => s.zone === x.zone).map(s => `${s.type} ${s.value}${s.unit}`).join(', ')} is at a critical level.`, sensors: crit.filter(s => s.zone === x.zone).map(s => s.id) }));
+    },
+  },
+];
+
+const statusOf = (score) => score >= 70 ? 'CRITICAL' : score >= 45 ? 'HIGH' : score >= 25 ? 'ELEVATED' : score >= 10 ? 'LOW' : 'SAFE';
+
+class CompoundRiskOrchestrator {
+  constructor({ layout, kg }) {
+    this.layout = layout;
+    this.kg = kg;
+    this.zones = Object.fromEntries(layout.zones.map(z => [z.id, z]));
+    this.aiCache = new Map();       // signature → recommendation
+    this.aiPending = new Set();
+    this.last = { riskScore: 0, status: 'SAFE', alerts: [], zoneScores: {}, forecasts: [], leadTimeMin: null, timestamp: new Date().toISOString() };
+  }
+
+  analyze({ sensors = [], permitsByZone = {}, vision = {}, workers = [], shift = null, forecasts = [] }) {
+    const fc = Object.fromEntries(forecasts.map(f => [f.sensorId, f]));
+    const ctx = { sensors, permitsByZone, vision, workers, shift, fc, kg: this.kg, zones: this.zones };
+
+    const alerts = [];
+    for (const rule of RULES) {
+      let hits = [];
+      try { hits = rule.check(ctx) || []; } catch (err) { console.error(`[Risk] ${rule.id} failed:`, err.message); }
+      for (const h of hits) {
+        const zoneKey = (h.zones || []).slice().sort().join('+') || 'PLANT';
+        alerts.push({
+          id: `${rule.id}:${zoneKey}`,
+          ruleId: rule.id, name: rule.name, severity: rule.severity, regulation: rule.regulation,
+          details: h.details, affectedZones: h.zones || [], sensors: h.sensors || [], permits: h.permits || [], cameras: h.cameras || [],
+          recommendedActions: rule.actions,
+          triggered: true,
+        });
       }
     }
 
-    // Calculate risk score (0–100)
-    let score = 0;
-    triggeredRules.forEach(r => {
-      if (r.severity === 'CRITICAL') score += 35;
-      else if (r.severity === 'HIGH') score += 20;
-      else if (r.severity === 'MEDIUM') score += 10;
+    // Explainability: attach knowledge-graph chains that connect each alert's zones
+    const paths = this.kg.compoundPaths({ sensors, permits: Object.values(permitsByZone).flat(), vision, forecasts });
+    alerts.forEach(a => {
+      a.chains = paths.filter(p => a.affectedZones.includes(p.zone) && (!a.permits.length || a.permits.includes(p.permit))).slice(0, 3).map(p => p.chain);
     });
-    // Add base from sensor states
-    const criticalSensors = sensorReadings.filter(s => s.status === 'CRITICAL').length;
-    const warningSensors = sensorReadings.filter(s => s.status === 'WARNING').length;
-    score += criticalSensors * 10 + warningSensors * 3;
 
-    const cvDetections = Object.values(context.cvDetections ?? {});
-    const ppeViolations = cvDetections.reduce((sum, d) => sum + (d.ppe_violations ?? d.ppeViolations ?? 0), 0);
-    const smokeDetections = cvDetections.filter(d => d.smoke_detected || d.smokeDetected).length;
-    score += Math.min(15, ppeViolations * 5) + smokeDetections * 20;
-    score = Math.min(100, score);
-
-    let status = 'SAFE';
-    if (score >= 70) status = 'CRITICAL';
-    else if (score >= 40) status = 'HIGH';
-    else if (score >= 20) status = 'ELEVATED';
-    else if (score >= 5) status = 'LOW';
-
-    this.riskScore = score;
-    this.overallStatus = status;
-    this.currentAlerts = triggeredRules;
-
-    // AI enrichment for critical alerts
-    if (triggeredRules.length > 0 && triggeredRules.some(r => r.severity === 'CRITICAL')) {
-      await this._enrichWithAI(triggeredRules, sensorReadings);
-    }
-
-    return {
-      riskScore: score,
-      status,
-      alerts: this.currentAlerts,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  async _enrichWithAI(alerts, sensors) {
-    try {
-      const context = alerts.map(a => `${a.name}: ${a.details}`).join('\n');
-      const sensorSummary = sensors
-        .filter(s => s.status !== 'NORMAL')
-        .map(s => `${s.id}(${s.type}): ${s.value}${s.unit} [${s.status}]`)
-        .join(', ');
-
-      const prompt = `You are an industrial safety AI for a petrochemical plant. Analyze these compound risks and give a concise (2-3 sentence) expert recommendation in plain English, citing specific regulation codes.
-
-COMPOUND RISKS DETECTED:
-${context}
-
-SENSOR ANOMALIES:
-${sensorSummary}
-
-Provide: 1) Immediate action required, 2) Which regulation is violated, 3) Lead time estimate before escalation.
-Keep response under 100 words.`;
-
-      const aiResponse = await generateWithFallback(prompt);
-      if (aiResponse) {
-        this.currentAlerts = this.currentAlerts.map(a => ({
-          ...a,
-          aiRecommendation: aiResponse
-        }));
+    // Zone scores
+    const zoneScores = {};
+    for (const z of this.layout.zones) {
+      const drivers = [];
+      let score = HAZARD_BASE[z.hazardClass] || 0;
+      for (const s of sensors.filter(x => x.zone === z.id)) {
+        if (s.status === 'CRITICAL') { score += 35; drivers.push(`${s.type} critical`); }
+        else if (s.status === 'WARNING') { score += 15; drivers.push(`${s.type} warning`); }
+        else if (fc[s.id]?.trend === 'WORSENING' && s.type !== 'O2' && s.value > 0.4 * s.warningThreshold) { score += 10; drivers.push(`${s.type} rising`); }
       }
-    } catch (err) {
-      console.error('AI enrichment failed:', err.message);
+      for (const p of permitsByZone[z.id] || []) { score += PERMIT_WEIGHT[p.type] || 4; drivers.push(`${p.type} permit`); }
+      const v = vision[z.id];
+      if (v) {
+        if (v.fire_detected) { score += 60; drivers.push('fire on CCTV'); }
+        if (v.smoke_detected) { score += 35; drivers.push('smoke on CCTV'); }
+        if (v.ppe_violations > 0) { score += Math.min(25, 10 + 5 * v.ppe_violations); drivers.push(`${v.ppe_violations} PPE violation(s)`); }
+      }
+      const zoneRules = alerts.filter(x => x.affectedZones.includes(z.id));
+      for (const a of zoneRules) { score += RULE_WEIGHT[a.severity] || 10; drivers.push(a.ruleId); }
+      // A compound rule sets a floor: CRITICAL always paints the zone red, HIGH at least amber
+      if (zoneRules.some(a => a.severity === 'CRITICAL')) score = Math.max(score, 85);
+      else if (zoneRules.some(a => a.severity === 'HIGH')) score = Math.max(score, 50);
+      if (v?.fire_detected) score = Math.max(score, 90);
+      score = Math.min(100, Math.round(score));
+      zoneScores[z.id] = { score, status: statusOf(score), drivers };
     }
-  }
 
-  getKnowledgeGraph() {
-    const permitsByZone = getActivePermitsByZone();
-    const sensors = this.lastSensorReadings ?? [];
-    const cvDetections = this.lastContext.cvDetections ?? {};
-    const scadaRegisters = this.lastContext.scada?.registers ?? [];
-    const nodes = [];
-    const edges = [];
-    const seen = new Set();
+    const scores = Object.values(zoneScores).map(z => z.score).sort((a, b) => b - a);
+    const hotZones = scores.filter(s => s >= 45).length;
+    const riskScore = Math.min(100, (scores[0] || 0) + Math.max(0, hotZones - 1) * 5);
 
-    const addNode = (node) => {
-      if (seen.has(node.id)) return;
-      nodes.push(node);
-      seen.add(node.id);
+    // Lead time: soonest alarm among worsening sensors near active work (the "hours ahead" signal)
+    const workZones = Object.keys(permitsByZone);
+    const leads = forecasts.filter(f => f.trend === 'WORSENING' && f.etaWarningMin && workZones.some(z => this.kg.areAdjacent(z, f.zone)));
+    const leadTimeMin = leads.length ? Math.min(...leads.map(f => f.etaWarningMin)) : null;
+
+    this._attachAI(alerts, sensors);
+
+    this.last = {
+      riskScore, status: statusOf(riskScore), alerts, zoneScores,
+      forecasts: forecasts.filter(f => f.trend !== 'STABLE'),
+      leadTimeMin, timestamp: new Date().toISOString(),
     };
-
-    // Zone nodes
-    const activeZones = new Set();
-    this.currentAlerts.forEach(a => (a.affectedZones || []).forEach(z => activeZones.add(z)));
-    Object.keys(permitsByZone).forEach(z => activeZones.add(z));
-    sensors.forEach(s => activeZones.add(s.zone));
-    Object.keys(cvDetections).forEach(z => activeZones.add(z));
-    scadaRegisters.forEach(r => activeZones.add(r.zone));
-
-    activeZones.forEach(zoneId => {
-      addNode({ id: zoneId, label: zoneId, type: 'ZONE', color: '#4488ff' });
-    });
-
-    // Permit nodes
-    Object.entries(permitsByZone).forEach(([zoneId, permits]) => {
-      permits.forEach(permit => {
-        addNode({ id: permit.id, label: permit.type, type: 'PERMIT', color: '#ff8844' });
-        edges.push({ from: permit.id, to: zoneId, label: 'active_in' });
-      });
-    });
-
-    // Sensor nodes
-    sensors.forEach(sensor => {
-      const color = sensor.status === 'CRITICAL' ? '#ff2244' : sensor.status === 'WARNING' ? '#ffb300' : '#00cc77';
-      addNode({ id: sensor.id, label: `${sensor.type}: ${sensor.value}${sensor.unit}`, type: 'SENSOR', color });
-      edges.push({ from: sensor.id, to: sensor.zone, label: 'located_in' });
-    });
-
-    // CCTV nodes
-    Object.entries(cvDetections).forEach(([zoneId, detection]) => {
-      const cameraId = detection.camera_id ?? detection.cameraId ?? `CV-${zoneId}`;
-      const violationCount = detection.ppe_violations ?? detection.ppeViolations ?? 0;
-      const smoke = detection.smoke_detected || detection.smokeDetected;
-      addNode({
-        id: cameraId,
-        label: `${cameraId}: ${detection.worker_count ?? detection.workerCount ?? 0} workers`,
-        type: 'CCTV',
-        color: smoke ? '#ff2244' : violationCount > 0 ? '#ff8844' : '#00cc77',
-      });
-      edges.push({ from: cameraId, to: zoneId, label: 'observes' });
-    });
-
-    // SCADA register nodes, limited to abnormal or first few normals to keep graph readable
-    scadaRegisters
-      .filter((r, idx) => r.status !== 'NORMAL' || idx < 8)
-      .forEach(reg => {
-        const id = `REG-${reg.address}`;
-        const color = reg.status === 'CRITICAL' ? '#ff2244' : reg.status === 'WARNING' ? '#ffb300' : '#4aa3ff';
-        addNode({ id, label: `${reg.name}: ${reg.value}${reg.unit}`, type: 'SCADA', color });
-        edges.push({ from: id, to: reg.zone, label: 'measures' });
-      });
-
-    // Alert nodes
-    this.currentAlerts.forEach(alert => {
-      addNode({ id: alert.id, label: alert.name, type: 'RISK', color: alert.severity === 'CRITICAL' ? '#ff2244' : '#ff8844' });
-      (alert.affectedZones || []).forEach(z => {
-        edges.push({ from: alert.id, to: z, label: 'risk_in', color: '#ff2244' });
-      });
-    });
-
-    return { nodes, edges };
+    return this.last;
   }
+
+  _attachAI(alerts, sensors) {
+    const serious = alerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH');
+    if (!serious.length || !llm.isConfigured()) return;
+    const signature = serious.map(a => a.id).sort().join('|');
+    const cached = this.aiCache.get(signature);
+    if (cached) { serious.forEach(a => { a.aiRecommendation = cached; }); return; }
+    if (this.aiPending.has(signature)) return;
+    this.aiPending.add(signature);
+    const abnormal = sensors.filter(s => s.status !== 'NORMAL').map(s => `${s.id} ${s.type}=${s.value}${s.unit} [${s.status}]`).join(', ') || 'none in alarm';
+    const prompt = `You are the safety AI of an Indian process plant control room. Compound risks detected:
+${serious.map(a => `- [${a.severity}] ${a.name}: ${a.details} (ref: ${a.regulation})`).join('\n')}
+Sensors in alarm: ${abnormal}.
+In under 90 words give: (1) the single most important immediate action, (2) who must do it, (3) why this combination is dangerous even though individual alarms may be silent. Cite only a regulation listed above (Indian standards). Plain text, no markdown.`;
+    llm.generate(prompt, { tier: 'fast', maxOutputTokens: 300 })
+      .then(text => { if (text) this.aiCache.set(signature, text); if (this.aiCache.size > 50) this.aiCache.delete(this.aiCache.keys().next().value); })
+      .finally(() => this.aiPending.delete(signature));
+  }
+
+  getLast() { return this.last; }
 }
 
 module.exports = CompoundRiskOrchestrator;
+module.exports.RULES = RULES;
+module.exports.statusOf = statusOf;

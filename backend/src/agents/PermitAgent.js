@@ -1,88 +1,77 @@
-// Permit Intelligence Agent — validates permits against live sensor readings
-const { generateWithFallback } = require('./geminiService');
-const { getPermits, detectSimops } = require('../data/permitStore');
+// Permit Intelligence Agent — validates a permit request against live conditions before it is
+// issued: atmosphere in the zone and adjacent zones, SIMOPS conflicts, CCTV PPE compliance,
+// and the PPE the work will require. Blocks unsafe permits; explains every decision.
+const llm = require('../services/llm');
+const { detectSimops, PERMIT_TYPES } = require('../data/permitStore');
 const regulations = require('../data/regulations.json');
 
+const FLAMMABLE = ['CH4', 'H2S'];
+
 class PermitAgent {
-  async validatePermit(permitData, currentSensorReadings) {
-    const warnings = [];
+  constructor({ kg, layout }) {
+    this.kg = kg;
+    this.layout = layout;
+  }
+
+  async validatePermit(permitData, sensors, { vision = {}, requiredPPE = null } = {}) {
     const violations = [];
+    const warnings = [];
+    const type = permitData.type;
+    const zone = permitData.zone;
+    if (!PERMIT_TYPES[type]) return { canApprove: false, violations: [{ severity: 'BLOCK', rule: 'Input', message: `Unknown permit type ${type}` }], warnings, riskScore: 100, aiAnalysis: 'Invalid permit type.' };
+    const near = (s) => this.kg.areAdjacent(zone, s.zone);
 
-    // Rule 1: Hot work in zone with gas above 10% of warning threshold
-    if (permitData.type === 'HOT_WORK') {
-      const zoneGas = currentSensorReadings.filter(s =>
-        s.zone === permitData.zone &&
-        (s.type === 'CH4' || s.type === 'H2S') &&
-        s.value > s.warningThreshold * 0.1
-      );
-      if (zoneGas.length > 0) {
-        violations.push({
-          severity: 'BLOCK',
-          rule: 'OISD-STD-105 Section 4.2',
-          message: `Gas detected in zone ${permitData.zone}: ${zoneGas.map(s => `${s.type}=${s.value.toFixed(1)}${s.unit}`).join(', ')}. Hot work cannot proceed.`
+    if (type === 'HOT_WORK') {
+      const gas = sensors.filter(s => FLAMMABLE.includes(s.type) && near(s) && s.value > s.warningThreshold * 0.1 && s.value > (s.baseline ?? 0) * 1.5);
+      gas.forEach(s => {
+        const blocking = s.zone === zone ? s.value > s.warningThreshold * 0.25 : s.value > s.warningThreshold * 0.5;
+        (blocking ? violations : warnings).push({
+          severity: blocking ? 'BLOCK' : 'WARN', rule: 'OISD-STD-105',
+          message: `${s.type} at ${s.id} (${s.zone === zone ? 'this zone' : `adjacent ${s.zone}`}) reads ${s.value} ${s.unit} — ${Math.round(s.value / s.warningThreshold * 100)}% of alarm level. ${blocking ? 'Hot work cannot be authorised until the atmosphere is cleared.' : 'Continuous gas monitoring required.'}`,
         });
-      }
-    }
-
-    // Rule 2: Confined space — check O2 levels
-    if (permitData.type === 'CONFINED_SPACE') {
-      const o2Sensor = currentSensorReadings.find(s => s.zone === permitData.zone && s.type === 'O2');
-      if (o2Sensor && o2Sensor.value < 19.5) {
-        violations.push({
-          severity: 'BLOCK',
-          rule: 'OISD-GDN-169',
-          message: `O2 level at ${o2Sensor.value.toFixed(1)}% in zone ${permitData.zone}. Minimum 19.5% required for entry (OISD-GDN-169).`
-        });
-      }
-      if (o2Sensor && o2Sensor.value < 20.5) {
-        warnings.push({
-          severity: 'WARN',
-          rule: 'OISD-GDN-169',
-          message: `O2 at ${o2Sensor.value.toFixed(1)}% — borderline. Continuous monitoring mandatory during entry.`
-        });
-      }
-    }
-
-    // Rule 3: SIMOPS check
-    const simops = detectSimops();
-    const relevantSimops = simops.filter(s => {
-      const permits = getPermits({ status: 'ACTIVE' });
-      return permits.some(p => p.zone === permitData.zone);
-    });
-    if (relevantSimops.length > 0) {
-      warnings.push({
-        severity: 'WARN',
-        rule: 'DGMS Circular 6/2018',
-        message: `SIMOPS conflict: ${relevantSimops.length} simultaneous operation(s) in adjacent zones. SIMOPS risk assessment required.`
       });
     }
 
-    // AI-enhanced validation
-    let aiAnalysis = null;
-    if (violations.length > 0 || warnings.length > 0) {
-      const context = [...violations, ...warnings].map(v => v.message).join('\n');
-      const prompt = `As an industrial safety AI, analyze this permit request and provide a brief risk assessment.
-
-PERMIT: ${permitData.type} in Zone ${permitData.zone}
-ISSUES DETECTED:
-${context}
-
-Give a 2-sentence expert recommendation on whether to approve, hold, or block this permit. Cite specific regulation.`;
-
-      aiAnalysis = await generateWithFallback(prompt);
+    if (type === 'CONFINED_SPACE') {
+      const o2 = sensors.find(s => s.type === 'O2' && s.zone === zone);
+      if (o2 && o2.value < 19.5) violations.push({ severity: 'BLOCK', rule: 'Factories Act 1948, Section 36', message: `O₂ at ${o2.value}% in ${zone}; minimum 19.5% required for entry.` });
+      else if (o2 && o2.value < 20.5) warnings.push({ severity: 'WARN', rule: 'Factories Act 1948, Section 36', message: `O₂ at ${o2.value}% — borderline. Continuous monitoring and a standby attendant are mandatory.` });
+      const gas = sensors.filter(s => FLAMMABLE.includes(s.type) && s.zone === zone && s.value > s.warningThreshold * 0.1);
+      gas.forEach(s => violations.push({ severity: 'BLOCK', rule: 'Factories Act 1948, Section 36', message: `${s.type} ${s.value} ${s.unit} inside the confined space.` }));
     }
 
-    const canApprove = violations.filter(v => v.severity === 'BLOCK').length === 0;
+    const conflicts = detectSimops({ type, zone, id: 'NEW' });
+    conflicts.forEach(c => warnings.push({ severity: 'WARN', rule: 'OISD-STD-105 (SIMOPS)', message: `${c.reason}. A SIMOPS risk assessment must be signed before issue.` }));
 
+    const v = vision[zone];
+    if (v && v.ppe_violations > 0) {
+      warnings.push({ severity: 'WARN', rule: 'Factories Act 1948, Section 111', message: `CCTV ${v.camera_id} currently shows ${v.ppe_violations} worker(s) in ${zone} without required PPE.` });
+    }
+    if (v && (v.fire_detected || v.smoke_detected)) {
+      violations.push({ severity: 'BLOCK', rule: 'Factories Act 1948, Section 38', message: `CCTV ${v.camera_id} reports ${v.fire_detected ? 'fire' : 'smoke'} in ${zone}.` });
+    }
+
+    let aiAnalysis = null;
+    if (violations.length || warnings.length) {
+      const prompt = `As a permit-to-work safety reviewer at an Indian process plant, give a 2-sentence recommendation (approve / hold / reject) for this request. Cite only a regulation named in the findings. Plain text, no markdown.
+PERMIT: ${PERMIT_TYPES[type].label} in zone ${zone}.
+FINDINGS:
+${[...violations, ...warnings].map(x => `- [${x.severity}] ${x.message}`).join('\n')}`;
+      aiAnalysis = await llm.generate(prompt, { tier: 'fast', maxOutputTokens: 200 });
+    }
+
+    const canApprove = violations.length === 0;
+    const tag = type.toLowerCase();
     return {
       canApprove,
-      violations,
-      warnings,
-      aiAnalysis: aiAnalysis || (canApprove ? 'No blocking violations detected. Standard precautions apply.' : 'BLOCKED: Critical safety violations prevent permit issuance.'),
-      riskScore: violations.length * 30 + warnings.length * 10,
-      applicableRegs: regulations
-        .filter(r => r.tags.some(t => t.includes(permitData.type.toLowerCase().replace('_', ''))))
-        .map(r => r.code)
+      decision: canApprove ? (warnings.length ? 'APPROVE_WITH_CONDITIONS' : 'APPROVE') : 'BLOCK',
+      violations, warnings,
+      requiredPPE,
+      aiAnalysis: aiAnalysis || (canApprove
+        ? (warnings.length ? 'Approve with conditions: address every warning before work starts.' : 'No blocking conditions detected. Standard precautions apply.')
+        : 'BLOCKED: live conditions make this work unsafe. Resolve the blocking findings and re-validate.'),
+      riskScore: Math.min(100, violations.length * 35 + warnings.length * 10 + (PERMIT_TYPES[type].risk || 0) * 2),
+      applicableRegs: regulations.filter(r => (r.tags || []).some(t => t === tag || t.replace(/_/g, '') === tag.replace(/_/g, ''))).map(r => r.code),
     };
   }
 }

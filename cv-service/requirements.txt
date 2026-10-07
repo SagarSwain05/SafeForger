@@ -1,7 +1,10 @@
-ultralytics>=8.0.0
-opencv-python-headless>=4.8.0
-paho-mqtt>=2.0.0
-numpy>=1.24.0
-scipy>=1.11.0
-requests>=2.31.0
-Pillow>=10.0.0
+# Runtime (no PyTorch needed — models are ONNX)
+onnxruntime>=1.18
+opencv-python-headless>=4.9
+numpy>=1.26
+requests>=2.31
+paho-mqtt>=2.0
+# HTTP inference API (server.py)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

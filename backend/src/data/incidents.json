@@ -1,21 +1,27 @@
 [
   {
     "id": "INC-001",
-    "date": "2019-05-07",
+    "date": "2020-05-07",
     "location": "Visakhapatnam LG Polymers",
     "type": "Gas Release",
     "gas": "Styrene",
     "casualties": 12,
-    "description": "Styrene gas leak from storage tank due to thermal runaway during COVID lockdown. Safety valves failed, inhibitor depleted. Workers re-entering without proper PPE assessment.",
-    "rootCause": "Confined space entry during abnormal process conditions without proper gas testing",
+    "description": "Styrene vapour leaked from a storage tank after a temperature rise during restart following the COVID-19 lockdown; the vapour cloud reached surrounding villages.",
+    "rootCause": "Inadequate temperature control and inhibitor management in a storage tank during an abnormal (restart) operating condition",
     "regulation": "OISD-GDN-169, Factory Act Section 36",
     "pattern": "maintenance_gap + abnormal_conditions + confined_space",
-    "tags": ["styrene", "gas_release", "confined_space", "process_deviation"]
+    "tags": [
+      "styrene",
+      "gas_release",
+      "confined_space",
+      "process_deviation"
+    ],
+    "kind": "historical"
   },
   {
     "id": "INC-002",
-    "date": "2020-03-08",
-    "location": "HPCL Mumbai Refinery",
+    "date": "2020",
+    "location": "Refinery hydrocracker area (representative scenario)",
     "type": "Hot Work + Gas",
     "gas": "H2S",
     "casualties": 3,
@@ -23,12 +29,18 @@
     "rootCause": "Hot work permit active simultaneously with H2S accumulation; sensor offline",
     "regulation": "OISD-STD-105 Section 4.2, DGMS Circular 6/2018",
     "pattern": "hot_work + gas_accumulation + sensor_failure",
-    "tags": ["H2S", "hot_work", "welding", "permit_conflict"]
+    "tags": [
+      "H2S",
+      "hot_work",
+      "welding",
+      "permit_conflict"
+    ],
+    "kind": "representative"
   },
   {
     "id": "INC-003",
-    "date": "2021-11-15",
-    "location": "IOCL Panipat Refinery",
+    "date": "2021",
+    "location": "Refinery vessel maintenance (representative scenario)",
     "type": "Confined Space",
     "gas": "CO",
     "casualties": 2,
@@ -36,12 +48,18 @@
     "rootCause": "Shift changeover communication gap + confined space entry without gas clearance",
     "regulation": "OISD-GDN-192, Factory Act Section 87",
     "pattern": "shift_change + confined_space + communication_gap",
-    "tags": ["CO", "confined_space", "shift_change", "atmospheric_testing"]
+    "tags": [
+      "CO",
+      "confined_space",
+      "shift_change",
+      "atmospheric_testing"
+    ],
+    "kind": "representative"
   },
   {
     "id": "INC-004",
-    "date": "2022-04-22",
-    "location": "BPCL Kochi Refinery",
+    "date": "2022",
+    "location": "Refinery compressor hall (representative near-miss)",
     "type": "Simultaneous Operations",
     "gas": "CH4",
     "casualties": 0,
@@ -49,12 +67,18 @@
     "rootCause": "Simultaneous operations without compound risk assessment; permit system siloed",
     "regulation": "OISD-STD-105 Section 3.1, Factory Act Section 36A",
     "pattern": "simultaneous_operations + gas_leak + permit_conflict",
-    "tags": ["CH4", "hot_work", "electrical_isolation", "simultaneous_ops"]
+    "tags": [
+      "CH4",
+      "hot_work",
+      "electrical_isolation",
+      "simultaneous_ops"
+    ],
+    "kind": "representative"
   },
   {
     "id": "INC-005",
-    "date": "2023-02-10",
-    "location": "ONGC Hazira Plant",
+    "date": "2023",
+    "location": "Gas processing plant pump station (representative scenario)",
     "type": "SCADA Failure + Maintenance",
     "gas": "H2S",
     "casualties": 1,
@@ -62,12 +86,18 @@
     "rootCause": "SCADA sensor drift + maintenance activity + inadequate field verification",
     "regulation": "OISD-STD-118, DGMS Technical Circular 2/2020",
     "pattern": "scada_failure + maintenance + sensor_drift",
-    "tags": ["H2S", "SCADA", "maintenance", "sensor_calibration"]
+    "tags": [
+      "H2S",
+      "SCADA",
+      "maintenance",
+      "sensor_calibration"
+    ],
+    "kind": "representative"
   },
   {
     "id": "INC-006",
-    "date": "2023-08-30",
-    "location": "Reliance Jamnagar SEZ",
+    "date": "2023",
+    "location": "Petrochemical complex, adjacent units (representative near-miss)",
     "type": "Shift Change + Multiple Permits",
     "gas": "LPG",
     "casualties": 0,
@@ -75,6 +105,113 @@
     "rootCause": "Multiple active permits + shift change + inadequate handover protocol",
     "regulation": "OISD-STD-105, Factory Act Section 7B",
     "pattern": "multiple_permits + shift_change + vapor_cloud",
-    "tags": ["LPG", "shift_change", "multiple_permits", "vapor_cloud"]
+    "tags": [
+      "LPG",
+      "shift_change",
+      "multiple_permits",
+      "vapor_cloud"
+    ],
+    "kind": "representative"
+  },
+  {
+    "id": "INC-007",
+    "date": "2009-10-29",
+    "location": "Indian Oil terminal, Sanganer, Jaipur",
+    "kind": "historical",
+    "type": "Fire / Vapour Cloud Explosion",
+    "gas": "Petrol vapour",
+    "casualties": 11,
+    "description": "Petrol leaked during a pipeline-to-tank transfer operation; the vapour cloud ignited and the fire burned for over a week, killing at least 11 people.",
+    "rootCause": "Loss of containment during transfer with no rapid detection or isolation; ignition of an unconfined vapour cloud",
+    "regulation": "OISD-STD-116, Factories Act Section 38",
+    "pattern": "loss_of_containment + delayed_detection + ignition_source",
+    "tags": [
+      "fire",
+      "vapour_cloud",
+      "explosion",
+      "petrol",
+      "detection_delay"
+    ]
+  },
+  {
+    "id": "INC-008",
+    "date": "2021-05-25",
+    "location": "HPCL Visakh Refinery, Visakhapatnam",
+    "kind": "historical",
+    "type": "Process Unit Fire",
+    "gas": "Hydrocarbon",
+    "casualties": 0,
+    "description": "A fire broke out in a crude distillation unit; it was brought under control by the refinery fire crew with no injuries reported.",
+    "rootCause": "Hydrocarbon release in a process unit leading to fire (unit-level investigation)",
+    "regulation": "OISD-STD-116, Factories Act Section 38",
+    "pattern": "process_release + fire",
+    "tags": [
+      "fire",
+      "smoke",
+      "crude_distillation",
+      "refinery",
+      "emergency_response"
+    ]
+  },
+  {
+    "id": "INC-009",
+    "date": "1984-12-03",
+    "location": "Union Carbide pesticide plant, Bhopal",
+    "kind": "historical",
+    "type": "Toxic Gas Release",
+    "gas": "Methyl isocyanate (MIC)",
+    "casualties": 3787,
+    "description": "Water entered an MIC storage tank, triggering a runaway reaction; the toxic gas release killed thousands (3,787 per the Madhya Pradesh government's official figure).",
+    "rootCause": "Multiple safety systems out of service or undersized during a period of reduced maintenance and staffing",
+    "regulation": "Factories Act Chapter IVA (hazardous processes), Section 41H",
+    "pattern": "maintenance_gap + disabled_safeguards + low_staffing",
+    "tags": [
+      "toxic_gas",
+      "mic",
+      "maintenance",
+      "safeguards_disabled",
+      "staffing"
+    ]
+  },
+  {
+    "id": "INC-010",
+    "date": "2024",
+    "location": "Fabrication shop (representative scenario)",
+    "kind": "representative",
+    "type": "Struck-by / Head Injury",
+    "gas": null,
+    "casualties": 1,
+    "description": "A worker without a safety helmet was struck by a falling tool during overhead work. CCTV covered the bay but nobody was watching the feed.",
+    "rootCause": "PPE non-compliance not detected in real time; overhead work without exclusion zone",
+    "regulation": "Factories Act Section 111, IS 2925, OISD-STD-155",
+    "pattern": "ppe_violation + overhead_work",
+    "tags": [
+      "ppe",
+      "helmet",
+      "head_injury",
+      "cctv",
+      "compliance"
+    ]
+  },
+  {
+    "id": "INC-011",
+    "date": "2024",
+    "location": "Welding bay (representative near-miss)",
+    "kind": "representative",
+    "type": "Fire (Hot Work)",
+    "gas": null,
+    "casualties": 0,
+    "description": "Welding spatter ignited packaging material; smoke was visible on CCTV for several minutes before a supervisor noticed and raised the alarm.",
+    "rootCause": "Combustibles inside the hot-work radius; no fire watch; visual smoke not auto-detected",
+    "regulation": "OISD-STD-105, Factories Act Section 38",
+    "pattern": "hot_work + combustibles + delayed_detection",
+    "tags": [
+      "fire",
+      "smoke",
+      "hot_work",
+      "welding",
+      "cctv",
+      "detection_delay"
+    ]
   }
 ]

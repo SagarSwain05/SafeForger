@@ -1,134 +1,109 @@
-// IoT Sensor Simulator — Realistic physics-based simulation with anomaly injection
+// IoT Sensor Simulator — mean-reverting (Ornstein–Uhlenbeck) noise around realistic baselines,
+// with scripted scenario drifts for the demo. Swap for real Modbus/OPC-UA readings in production:
+// everything downstream only consumes the reading objects emitted here.
 const { EventEmitter } = require('events');
 const plantLayout = require('../data/plant-layout.json');
+
+const SENSOR_TYPES = {
+  CH4:      { baseline: 2.0,  noise: 0.12, unit: '% LEL', min: 0, max: 100, warningThreshold: 10, criticalThreshold: 20 },
+  H2S:      { baseline: 1.5,  noise: 0.06, unit: 'ppm',   min: 0, max: 100, warningThreshold: 5,  criticalThreshold: 10 },
+  CO:       { baseline: 5.0,  noise: 0.35, unit: 'ppm',   min: 0, max: 200, warningThreshold: 25, criticalThreshold: 50 },
+  O2:       { baseline: 20.9, noise: 0.03, unit: '%',     min: 0, max: 25,  warningThreshold: 19.5, criticalThreshold: 16, invertAlarm: true },
+  TEMP:     { baseline: 45,   noise: 0.35, unit: '°C',    min: 20, max: 120, warningThreshold: 70, criticalThreshold: 90 },
+  PRESSURE: { baseline: 8.5,  noise: 0.07, unit: 'bar',   min: 0, max: 30,  warningThreshold: 15, criticalThreshold: 20 },
+};
+
+const REVERSION = 0.15; // pull toward the target each tick
+
+// Scenario targets: sensor-id → target value (approached smoothly)
+const SCENARIOS = {
+  NORMAL: {},
+  // Kill chain: CH4 at the CDU climbs to ~75% of its warning level — every individual
+  // sensor stays NORMAL, but combined with hot work it is a fatal combination.
+  KILL_CHAIN: { 'S-GAS-01': 7.6, 'S-GAS-02': 3.2 },
+  // Full emergency: gas release at the CDU + O2 depletion in the confined space
+  EMERGENCY: { 'S-GAS-01': 24, 'S-GAS-02': 14, 'S-GAS-06': 17.2, 'S-TEMP-01': 78 },
+};
+const SCENARIO_RATE = { KILL_CHAIN: 0.06, EMERGENCY: 0.12 };
 
 class SensorSimulator extends EventEmitter {
   constructor() {
     super();
     this.sensors = {};
-    this.scenario = 'NORMAL'; // NORMAL | COMPOUND_RISK | EMERGENCY
+    this.scenario = 'NORMAL';
     this.scenarioStep = 0;
-    this._initializeSensors();
-  }
-
-  _initializeSensors() {
-    const sensorConfigs = {
-      'CH4': { baseline: 2, unit: '% LEL', min: 0, max: 100, warningThreshold: 10, criticalThreshold: 20 },
-      'H2S': { baseline: 1.5, unit: 'ppm', min: 0, max: 100, warningThreshold: 5, criticalThreshold: 10 },
-      'CO':  { baseline: 5, unit: 'ppm', min: 0, max: 200, warningThreshold: 25, criticalThreshold: 50 },
-      'O2':  { baseline: 20.9, unit: '%', min: 0, max: 25, warningThreshold: 19.5, criticalThreshold: 16, invertAlarm: true },
-      'TEMP': { baseline: 45, unit: '°C', min: 20, max: 120, warningThreshold: 70, criticalThreshold: 90 },
-      'PRESSURE': { baseline: 8.5, unit: 'bar', min: 0, max: 30, warningThreshold: 15, criticalThreshold: 20 },
-    };
-
-    plantLayout.sensors.forEach(sensor => {
-      const config = sensorConfigs[sensor.type];
-      this.sensors[sensor.id] = {
-        ...sensor,
-        ...config,
-        value: config.baseline + (Math.random() - 0.5) * 0.5,
-        trend: 0,
-        status: 'NORMAL',
-        lastUpdated: Date.now(),
-        history: []
-      };
+    this.readings = [];
+    plantLayout.sensors.forEach(s => {
+      const cfg = SENSOR_TYPES[s.type];
+      this.sensors[s.id] = { ...s, ...cfg, value: cfg.baseline + (Math.random() - 0.5) * cfg.noise, status: 'NORMAL', history: [] };
     });
+    // Seed a minute of history so trends and forecasts work immediately after start-up
+    const now = Date.now();
+    for (let i = 30; i > 0; i--) this._step(now - i * 2000);
+    this.readings = this._snapshot();
   }
 
-  _gaussianNoise(mean = 0, std = 1) {
+  _gauss() {
     let u = 0, v = 0;
     while (u === 0) u = Math.random();
     while (v === 0) v = Math.random();
-    return mean + std * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
 
-  _updateSensorValue(sensor) {
-    const noise = this._gaussianNoise(0, 0.3);
-    const drift = sensor.trend * 0.8;
-    
-    let newValue = sensor.value + drift + noise;
-    
-    // Scenario-based overrides
-    if (this.scenario === 'KILL_CHAIN') {
-      if (sensor.type === 'CH4' && sensor.zone === 'Z-01') {
-        // Slowly rising CH4 — below single threshold but compound risk
-        const targetValue = 12 + this.scenarioStep * 0.5;
-        newValue = sensor.value + (targetValue - sensor.value) * 0.1 + noise * 0.2;
-      }
-      if (sensor.type === 'H2S' && sensor.zone === 'Z-07') {
-        const targetValue = 3 + this.scenarioStep * 0.3;
-        newValue = sensor.value + (targetValue - sensor.value) * 0.1 + noise * 0.1;
-      }
-    } else if (this.scenario === 'EMERGENCY') {
-      if (sensor.type === 'CH4') {
-        newValue = Math.min(sensor.value * 1.05, sensor.criticalThreshold * 1.2);
-      }
-      if (sensor.type === 'O2' && sensor.zone === 'Z-11') {
-        newValue = Math.max(sensor.value * 0.98, 14);
-      }
-    }
-    
-    // Clamp to physical limits
-    newValue = Math.max(sensor.min, Math.min(sensor.max, newValue));
-    
-    // Determine status
-    let status = 'NORMAL';
-    if (sensor.invertAlarm) {
-      if (newValue < sensor.criticalThreshold) status = 'CRITICAL';
-      else if (newValue < sensor.warningThreshold) status = 'WARNING';
-    } else {
-      if (newValue >= sensor.criticalThreshold) status = 'CRITICAL';
-      else if (newValue >= sensor.warningThreshold) status = 'WARNING';
-    }
-    
-    sensor.value = newValue;
-    sensor.status = status;
-    sensor.lastUpdated = Date.now();
-    sensor.trend = (sensor.trend * 0.9) + (noise * 0.1);
-    
-    // Keep short history
-    sensor.history.push({ t: Date.now(), v: parseFloat(newValue.toFixed(2)) });
-    if (sensor.history.length > 60) sensor.history.shift();
-    
-    return {
-      id: sensor.id,
-      zone: sensor.zone,
-      type: sensor.type,
-      value: parseFloat(newValue.toFixed(2)),
-      unit: sensor.unit,
-      status,
-      warningThreshold: sensor.warningThreshold,
-      criticalThreshold: sensor.criticalThreshold,
-      history: sensor.history.slice(-20),
-      lastUpdated: sensor.lastUpdated
-    };
+  _status(s, v) {
+    if (s.invertAlarm) return v < s.criticalThreshold ? 'CRITICAL' : v < s.warningThreshold ? 'WARNING' : 'NORMAL';
+    return v >= s.criticalThreshold ? 'CRITICAL' : v >= s.warningThreshold ? 'WARNING' : 'NORMAL';
   }
 
-  getAllReadings() {
-    return Object.values(this.sensors).map(s => this._updateSensorValue(s));
+  _step(t = Date.now()) {
+    const targets = SCENARIOS[this.scenario] || {};
+    Object.values(this.sensors).forEach(s => {
+      const target = targets[s.id];
+      const k = target !== undefined ? (SCENARIO_RATE[this.scenario] || REVERSION) : REVERSION;
+      const goal = target !== undefined ? target : s.baseline;
+      let v = s.value + k * (goal - s.value) + s.noise * this._gauss();
+      v = Math.max(s.min, Math.min(s.max, v));
+      s.value = v;
+      s.status = this._status(s, v);
+      s.history.push({ t, v: +v.toFixed(2) });
+      if (s.history.length > 90) s.history.shift();
+    });
   }
+
+  _snapshot() {
+    return Object.values(this.sensors).map(s => ({
+      id: s.id, zone: s.zone, type: s.type, x: s.x, y: s.y,
+      value: +s.value.toFixed(2), unit: s.unit, status: s.status,
+      baseline: s.baseline,
+      warningThreshold: s.warningThreshold, criticalThreshold: s.criticalThreshold,
+      history: s.history.slice(-30), lastUpdated: Date.now(),
+    }));
+  }
+
+  /** Latest readings (no side effects). */
+  getAllReadings() { return this.readings; }
 
   setScenario(scenario) {
+    if (!SCENARIOS[scenario]) throw new Error(`Unknown scenario ${scenario}`);
     this.scenario = scenario;
     this.scenarioStep = 0;
-    console.log(`[SensorSimulator] Scenario set to: ${scenario}`);
+    console.log(`[SensorSimulator] Scenario → ${scenario}`);
   }
 
   tick() {
     this.scenarioStep++;
-    const readings = this.getAllReadings();
-    this.emit('readings', readings);
-    return readings;
+    this._step();
+    this.readings = this._snapshot();
+    this.emit('readings', this.readings);
+    return this.readings;
   }
 
   start(intervalMs = 2000) {
     this._interval = setInterval(() => this.tick(), intervalMs);
-    console.log('[SensorSimulator] Started at', intervalMs, 'ms interval');
   }
 
-  stop() {
-    if (this._interval) clearInterval(this._interval);
-  }
+  stop() { if (this._interval) clearInterval(this._interval); }
 }
 
 module.exports = SensorSimulator;
+module.exports.SCENARIOS = SCENARIOS;

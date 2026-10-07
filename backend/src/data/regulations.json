@@ -4,48 +4,254 @@
     "code": "OISD-STD-105",
     "title": "Hot Work Permit System",
     "body": "No hot work shall be carried out in or near any area where flammable or explosive material or vapors are present unless a hot work permit has been issued by an authorized person. Gas tests shall be conducted before and during hot work. All sources of ignition shall be removed from a radius of 15 meters.",
-    "tags": ["hot_work", "permit", "gas_test", "ignition"]
+    "tags": [
+      "hot_work",
+      "permit",
+      "gas_test",
+      "ignition"
+    ],
+    "verified": true
   },
   {
     "id": "REG-OISD-169",
     "code": "OISD-GDN-169",
     "title": "Safety in Confined Spaces",
     "body": "Entry into confined space requires: (1) atmospheric testing for O2 (>19.5%, <23.5%), flammable gas (<10% LEL), toxic gas below TLV; (2) continuous monitoring during occupancy; (3) standby person outside; (4) rescue equipment available. No entry if O2 <16% or any gas >10% LEL.",
-    "tags": ["confined_space", "O2", "LEL", "atmospheric_testing"]
+    "tags": [
+      "confined_space",
+      "O2",
+      "LEL",
+      "atmospheric_testing"
+    ],
+    "verified": false
   },
   {
     "id": "REG-OISD-192",
     "code": "OISD-GDN-192",
     "title": "Shift Handover Procedures",
     "body": "All active permits, equipment status, ongoing work, abnormal conditions, and safety concerns must be communicated during shift handover. Written handover records mandatory. No new hazardous activity to commence during handover period of 30 minutes.",
-    "tags": ["shift_change", "handover", "permit_transfer", "communication"]
+    "tags": [
+      "shift_change",
+      "handover",
+      "permit_transfer",
+      "communication"
+    ],
+    "verified": false
   },
   {
     "id": "REG-OISD-118",
     "code": "OISD-STD-118",
     "title": "Instrumentation and Control Systems",
     "body": "Safety-critical sensors and instrumentation shall be calibrated at intervals not exceeding 90 days. Any sensor in bypass or maintenance state shall trigger an automatic manual monitoring protocol. SCADA alarms shall not be silenced without documented authorization.",
-    "tags": ["SCADA", "sensor_calibration", "instrumentation", "bypass"]
+    "tags": [
+      "SCADA",
+      "sensor_calibration",
+      "instrumentation",
+      "bypass"
+    ],
+    "verified": false
   },
   {
     "id": "REG-FACTORY-36",
     "code": "Factory Act Section 36",
     "title": "Precautions Against Dangerous Fumes",
     "body": "In any factory, no person shall be required to enter any chamber, tank, vat, pit, pipe, flue or other confined space in which any gas, fume, vapor or dust is likely to be present unless: certificate of safety is given, self-contained breathing apparatus is available, and a reliable person watches outside.",
-    "tags": ["confined_space", "gas", "fumes", "breathing_apparatus"]
+    "tags": [
+      "confined_space",
+      "gas",
+      "fumes",
+      "breathing_apparatus"
+    ],
+    "verified": true
   },
   {
     "id": "REG-DGMS-6-2018",
     "code": "DGMS Circular 6/2018",
     "title": "Simultaneous Operations Management",
     "body": "Where two or more permits are active in spatially proximate areas (within 50 meters), a Simultaneous Operations (SIMOPS) risk assessment shall be conducted. The permit authority shall assess compound hazards. Hot work and electrical work permits in adjacent zones require dual authorization.",
-    "tags": ["simultaneous_operations", "SIMOPS", "compound_risk", "dual_authorization"]
+    "tags": [
+      "simultaneous_operations",
+      "SIMOPS",
+      "compound_risk",
+      "dual_authorization"
+    ],
+    "verified": false
   },
   {
     "id": "REG-DGMS-2020",
     "code": "DGMS Technical Circular 2/2020",
     "title": "Gas Detection and Monitoring",
     "body": "Fixed gas detectors shall be calibrated every 6 months. A gas reading between 10-20% LEL constitutes a WARNING state requiring evacuation of non-essential personnel. Reading >20% LEL constitutes DANGER requiring immediate plant shutdown. Portable detectors mandatory for confined space entry.",
-    "tags": ["gas_detection", "LEL", "calibration", "evacuation_threshold"]
+    "tags": [
+      "gas_detection",
+      "LEL",
+      "calibration",
+      "evacuation_threshold"
+    ],
+    "verified": false
+  },
+  {
+    "id": "REG-FA-7A",
+    "code": "Factories Act 1948, Section 7A",
+    "title": "General duties of the occupier",
+    "verified": true,
+    "body": "The occupier shall ensure, so far as is reasonably practicable, the health, safety and welfare of all workers, including safe plant and systems of work, safe handling of articles and substances, and the information, instruction, training and supervision necessary for safety.",
+    "tags": [
+      "duty_of_care",
+      "occupier",
+      "supervision",
+      "ppe",
+      "training"
+    ]
+  },
+  {
+    "id": "REG-FA-35",
+    "code": "Factories Act 1948, Section 35",
+    "title": "Protection of eyes",
+    "verified": true,
+    "body": "Effective screens or suitable goggles shall be provided for the protection of persons employed in processes that risk injury to the eyes from particles or fragments, or from exposure to excessive light (e.g. welding).",
+    "tags": [
+      "ppe",
+      "goggles",
+      "eye_protection",
+      "welding"
+    ]
+  },
+  {
+    "id": "REG-FA-38",
+    "code": "Factories Act 1948, Section 38",
+    "title": "Precautions in case of fire",
+    "verified": true,
+    "body": "Every factory shall take all practicable measures to prevent outbreak of fire and its spread, provide safe means of escape, maintain necessary equipment and facilities for extinguishing fire, and ensure workers are familiar with the means of escape and trained in the routine to be followed in case of fire.",
+    "tags": [
+      "fire",
+      "smoke",
+      "evacuation",
+      "fire_fighting",
+      "emergency"
+    ]
+  },
+  {
+    "id": "REG-FA-41H",
+    "code": "Factories Act 1948, Section 41H",
+    "title": "Right of workers to warn about imminent danger",
+    "verified": true,
+    "body": "Where workers have reasonable apprehension of imminent danger to their lives or health, they may bring it to the notice of the occupier or supervisor, who shall take immediate remedial action.",
+    "tags": [
+      "imminent_danger",
+      "worker_rights",
+      "emergency",
+      "alerting"
+    ]
+  },
+  {
+    "id": "REG-FA-88",
+    "code": "Factories Act 1948, Section 88",
+    "title": "Notice of certain accidents",
+    "verified": true,
+    "body": "Where an accident in a factory causes death or bodily injury preventing work for 48 hours or more, the manager shall send notice to the authorities as prescribed.",
+    "tags": [
+      "accident_reporting",
+      "notification",
+      "incident_report"
+    ]
+  },
+  {
+    "id": "REG-FA-111",
+    "code": "Factories Act 1948, Section 111",
+    "title": "Obligations of workers",
+    "verified": true,
+    "body": "No worker shall wilfully interfere with or misuse any appliance, convenience or other thing provided for securing health, safety or welfare, and no worker shall wilfully neglect to make use of such appliances (including personal protective equipment).",
+    "tags": [
+      "ppe",
+      "helmet",
+      "vest",
+      "worker_obligation",
+      "compliance"
+    ]
+  },
+  {
+    "id": "REG-IS-2925",
+    "code": "IS 2925",
+    "title": "Industrial safety helmets",
+    "verified": true,
+    "body": "Indian Standard specification for industrial safety helmets (shock absorption, penetration resistance, flame resistance). Helmets conforming to IS 2925 shall be worn wherever there is a risk of head injury from falling or flying objects.",
+    "tags": [
+      "ppe",
+      "helmet",
+      "head_protection",
+      "hard_hat"
+    ]
+  },
+  {
+    "id": "REG-IS-15298",
+    "code": "IS 15298",
+    "title": "Personal protective equipment — safety footwear",
+    "verified": true,
+    "body": "Indian Standard (aligned with ISO 20345) for safety footwear with toe protection against impact and compression. Required where there is a risk of foot injury from falling objects, crushing or penetration.",
+    "tags": [
+      "ppe",
+      "boots",
+      "footwear",
+      "foot_protection"
+    ]
+  },
+  {
+    "id": "REG-ISO-20471",
+    "code": "ISO 20471",
+    "title": "High-visibility clothing",
+    "verified": true,
+    "body": "Specifies requirements for high-visibility clothing that visually signals the user's presence, required where workers are exposed to moving vehicles, cranes or poor-visibility conditions.",
+    "tags": [
+      "ppe",
+      "vest",
+      "hi_vis",
+      "visibility",
+      "vehicles"
+    ]
+  },
+  {
+    "id": "REG-OISD-155",
+    "code": "OISD-STD-155",
+    "title": "Personal protective equipment",
+    "verified": true,
+    "body": "Oil-industry standard on selection, use and maintenance of personal protective equipment (head, eye, face, hand, foot and respiratory protection) appropriate to the hazards of each work area and activity.",
+    "tags": [
+      "ppe",
+      "helmet",
+      "gloves",
+      "boots",
+      "respirator",
+      "hot_work",
+      "confined_space"
+    ]
+  },
+  {
+    "id": "REG-OISD-116",
+    "code": "OISD-STD-116",
+    "title": "Fire protection facilities for refineries and process plants",
+    "verified": true,
+    "body": "Specifies fire protection facilities — detection, alarm, fire water, foam and extinguishers — for petroleum refineries and oil/gas processing plants, including early detection and rapid response to fire and smoke.",
+    "tags": [
+      "fire",
+      "smoke",
+      "detection",
+      "alarm",
+      "fire_fighting"
+    ]
+  },
+  {
+    "id": "REG-NBC-4",
+    "code": "National Building Code 2016, Part 4",
+    "title": "Fire and life safety",
+    "verified": true,
+    "body": "Requirements for fire prevention, life safety and fire protection in buildings including detection and alarm systems, means of egress and assembly points for industrial occupancies.",
+    "tags": [
+      "fire",
+      "smoke",
+      "evacuation",
+      "alarm",
+      "assembly_point"
+    ]
   }
 ]

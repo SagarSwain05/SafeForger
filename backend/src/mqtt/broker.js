@@ -4,10 +4,10 @@ const aedesModule = require('aedes');
 const aedesFactory = aedesModule.Aedes?.createBroker ? aedesModule.Aedes : (aedesModule.default || aedesModule);
 const net = require('net');
 
-const MQTT_PORT = 1883;
 
 class MqttBroker {
-  constructor() {
+  constructor(port = 1883) {
+    this.port = port;
     this.broker = null;
     this.server = null;
     this.clients = new Set();
@@ -16,12 +16,12 @@ class MqttBroker {
   _setupEvents() {
     this.broker.on('client', (client) => {
       this.clients.add(client.id);
-      console.log(`[MQTT] Client connected: ${client.id}`);
+      if (!client.id.startsWith('safeforge-backend')) console.log(`[MQTT] Client connected: ${client.id}`);
     });
 
     this.broker.on('clientDisconnect', (client) => {
       this.clients.delete(client.id);
-      console.log(`[MQTT] Client disconnected: ${client.id}`);
+      if (!client.id.startsWith('safeforge-backend')) console.log(`[MQTT] Client disconnected: ${client.id}`);
     });
 
     this.broker.on('publish', (packet, client) => {
@@ -31,10 +31,6 @@ class MqttBroker {
       }
     });
 
-    this.broker.on('subscribe', (subscriptions, client) => {
-      const topics = subscriptions.map(s => s.topic).join(', ');
-      console.log(`[MQTT] ${client?.id ?? 'unknown'} subscribed to: ${topics}`);
-    });
   }
 
   async start() {
@@ -45,8 +41,8 @@ class MqttBroker {
     this._setupEvents();
 
     return new Promise((resolve, reject) => {
-      this.server.listen(MQTT_PORT, () => {
-        console.log(`[MQTT Broker] Aedes broker listening on port ${MQTT_PORT}`);
+      this.server.listen(this.port, () => {
+        console.log(`[MQTT Broker] Aedes broker listening on port ${this.port}`);
         resolve(this);
       });
       this.server.on('error', reject);
@@ -72,7 +68,7 @@ class MqttBroker {
       connectedClients: this.clients.size,
       clientIds: [...this.clients],
       lastPublish: this._lastPublish ?? null,
-      port: MQTT_PORT,
+      port: this.port,
     };
   }
 

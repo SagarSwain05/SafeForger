@@ -1,125 +1,89 @@
-// RAG Agent — Incident Pattern Intelligence with Gemini
-const { generateWithFallback } = require('./geminiService');
+// RAG Agent — Incident Pattern Intelligence.
+// Retrieves similar historical incidents + applicable regulations (TF-IDF vector search),
+// then asks the LLM for a grounded, cited analysis. Falls back to a deterministic summary.
+const llm = require('../services/llm');
+const { VectorIndex } = require('../services/vectorIndex');
 const incidents = require('../data/incidents.json');
 const regulations = require('../data/regulations.json');
+
+const isIncident = (d) => d.casualties !== undefined;
+const docText = (d) => isIncident(d)
+  ? `${d.type} ${d.gas || ''} ${d.description} ${d.rootCause} ${d.pattern} ${(d.tags || []).join(' ')} ${d.regulation}`
+  : `${d.code} ${d.title} ${d.body} ${(d.tags || []).join(' ')} ${(d.tags || []).join(' ')}`;
 
 class RAGAgent {
   constructor() {
     this.corpus = [...incidents, ...regulations];
+    this.index = new VectorIndex(this.corpus, docText);
   }
 
-  // Simple TF-IDF-like keyword similarity (no vector DB needed for hackathon)
-  _search(query, topK = 5) {
-    const queryWords = new Set(
-      query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2)
-    );
+  retrieve(query, k = 6) {
+    return this.index.search(query, k);
+  }
 
-    const scored = this.corpus.map(doc => {
-      const docText = JSON.stringify(doc).toLowerCase();
-      let score = 0;
-      queryWords.forEach(word => {
-        const regex = new RegExp(word, 'g');
-        const matches = (docText.match(regex) || []).length;
-        score += matches;
-      });
-      // Boost by tag matches
-      const tags = doc.tags || [];
-      tags.forEach(tag => {
-        if (queryWords.has(tag.toLowerCase())) score += 5;
-      });
-      return { doc, score };
-    });
-
-    return scored
-      .filter(s => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK)
-      .map(s => s.doc);
+  /** Regulations most relevant to a hazard description (used to cite alerts). */
+  regulationsFor(text, k = 3) {
+    return this.index.search(text, 12).filter(r => !isIncident(r.doc)).slice(0, k).map(r => r.doc.code);
   }
 
   async query(userQuery) {
-    const relevant = this._search(userQuery);
-
-    if (relevant.length === 0) {
+    const hits = this.retrieve(userQuery);
+    if (hits.length === 0) {
       return {
-        answer: 'No relevant incidents or regulations found for this query. Try searching for specific gas types, permit types, or incident categories.',
-        sources: [],
-        patterns: []
+        answer: 'No relevant incidents or regulations found. Try terms such as "hot work gas", "helmet violation", "smoke detection", "confined space oxygen" or "shift handover".',
+        sources: [], patterns: [], count: 0, mode: 'retrieval',
       };
     }
 
-    const contextText = relevant.map((doc, i) => {
-      if (doc.type && doc.casualties !== undefined) {
-        return `[INCIDENT ${i+1}] ${doc.date} - ${doc.location}: ${doc.description} Root cause: ${doc.rootCause}. Regulation: ${doc.regulation}.`;
-      } else {
-        return `[REGULATION] ${doc.code} - ${doc.title}: ${doc.body}`;
-      }
-    }).join('\n\n');
+    const context = hits.map(({ doc }, i) => isIncident(doc)
+      ? `[S${i + 1}] INCIDENT ${doc.date} · ${doc.location} (${doc.kind === 'historical' ? 'historical record' : 'representative scenario'}): ${doc.description} Root cause: ${doc.rootCause}. Regulation: ${doc.regulation}.`
+      : `[S${i + 1}] REGULATION ${doc.code} — ${doc.title}: ${doc.body}`).join('\n');
 
-    const prompt = `You are an industrial safety expert AI for Indian petrochemical plants. Using the following historical incident data and regulatory context, answer the user's safety query with specific, actionable insights.
+    const prompt = `You are an industrial safety expert supporting a control room in an Indian process plant.
+Answer the operator's question using ONLY the numbered sources. Cite sources inline like [S1].
 
-USER QUERY: "${userQuery}"
+QUESTION: ${userQuery}
 
-RELEVANT CONTEXT:
-${contextText}
+SOURCES:
+${context}
 
-Provide:
-1. Pattern Analysis: What recurring safety pattern does this reveal?
-2. Regulatory Violation: Which specific regulation(s) apply?
-3. Prevention Priority: Top 2 immediate actions to prevent recurrence.
-4. Risk Indicator: What early warning signs should operators watch for?
+Respond in four short sections:
+1. Pattern — the recurring failure pattern these sources show.
+2. Applicable rules — the regulation codes that apply, with one line each.
+3. Prevent now — the two highest-impact actions.
+4. Early warning signs — what operators and the vision/sensor system should watch for.
+Keep it under 220 words. Plain text: no markdown, no asterisks or # headings.`;
 
-Be specific, cite regulation codes, and keep response under 200 words.`;
-
-    const aiAnswer = await generateWithFallback(prompt);
-
-    // Extract patterns
-    const patterns = relevant
-      .filter(doc => doc.pattern)
-      .map(doc => doc.pattern)
-      .filter((v, i, a) => a.indexOf(v) === i);
-
+    const aiAnswer = await llm.generate(prompt, { tier: 'quality', maxOutputTokens: 900 });
+    const docs = hits.map(h => h.doc);
     return {
-      answer: aiAnswer || this._generateFallbackAnswer(relevant, userQuery),
-      sources: relevant.slice(0, 3).map(doc => ({
+      answer: aiAnswer || this._fallback(docs),
+      mode: aiAnswer ? 'llm' : 'retrieval',
+      sources: hits.map(({ doc, score }, i) => ({
+        ref: `S${i + 1}`,
         id: doc.id,
-        title: doc.title || `Incident: ${doc.location}`,
+        title: isIncident(doc) ? `${doc.type} — ${doc.location}` : doc.title,
         code: doc.code || doc.type,
+        kind: isIncident(doc) ? (doc.kind || 'incident') : 'regulation',
         date: doc.date,
-        location: doc.location
+        location: doc.location,
+        score,
       })),
-      patterns,
-      count: relevant.length
+      patterns: [...new Set(docs.filter(d => d.pattern).map(d => d.pattern))],
+      count: hits.length,
     };
   }
 
-  _generateFallbackAnswer(relevant, query) {
-    const incidents_found = relevant.filter(d => d.casualties !== undefined);
-    const regs_found = relevant.filter(d => d.code);
-    
-    let answer = `Found ${relevant.length} relevant records. `;
-    if (incidents_found.length > 0) {
-      const totalCasualties = incidents_found.reduce((s, d) => s + d.casualties, 0);
-      answer += `${incidents_found.length} historical incidents with ${totalCasualties} total casualties. Common root causes: ${[...new Set(incidents_found.map(d => d.rootCause.split('.')[0]))].slice(0,2).join('; ')}. `;
+  _fallback(docs) {
+    const inc = docs.filter(isIncident);
+    const regs = docs.filter(d => !isIncident(d));
+    const parts = [`Found ${docs.length} relevant records.`];
+    if (inc.length) {
+      parts.push(`Similar incidents: ${inc.map(d => `${d.type} (${d.location}, ${d.date})`).join('; ')}.`);
+      parts.push(`Recurring root causes: ${[...new Set(inc.map(d => d.rootCause))].slice(0, 2).join(' | ')}.`);
     }
-    if (regs_found.length > 0) {
-      answer += `Applicable regulations: ${regs_found.map(r => r.code).join(', ')}.`;
-    }
-    return answer;
-  }
-
-  getSimilarIncidents(pattern) {
-    return incidents.filter(inc => {
-      const patterns = inc.pattern ? inc.pattern.split('+').map(p => p.trim()) : [];
-      return patterns.some(p => pattern.includes(p) || p.includes(pattern));
-    });
-  }
-
-  getApplicableRegulations(keywords) {
-    return regulations.filter(reg => {
-      const regText = JSON.stringify(reg).toLowerCase();
-      return keywords.some(kw => regText.includes(kw.toLowerCase()));
-    });
+    if (regs.length) parts.push(`Applicable regulations: ${regs.map(r => `${r.code} (${r.title})`).join('; ')}.`);
+    return parts.join(' ');
   }
 }
 

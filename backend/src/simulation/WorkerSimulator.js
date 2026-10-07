@@ -66,7 +66,7 @@ class WorkerSimulator extends EventEmitter {
     worker.y = newPos.y;
     
     // Occasionally move to new zone (5% chance)
-    if (Math.random() < 0.05) {
+    if (Math.random() < 0.008) {
       const newZone = this.zones[Math.floor(Math.random() * this.zones.length)];
       worker.zoneId = newZone.id;
       worker.zoneName = newZone.name;
@@ -78,23 +78,23 @@ class WorkerSimulator extends EventEmitter {
     return worker;
   }
 
+  _public(w) {
+    return {
+      id: w.id, name: w.name, role: w.role, shift: w.shift, badge: w.badge,
+      zoneId: w.zoneId, zoneName: w.zoneName,
+      x: parseFloat(w.x.toFixed(1)), y: parseFloat(w.y.toFixed(1)),
+      ppeStatus: w.ppeStatus, lastUpdated: w.lastUpdated,
+    };
+  }
+
+  /** Current positions (no side effects). */
   getAllWorkers() {
-    return Object.values(this.workers).map(w => {
-      this._updateWorker(w);
-      return {
-        id: w.id,
-        name: w.name,
-        role: w.role,
-        shift: w.shift,
-        badge: w.badge,
-        zoneId: w.zoneId,
-        zoneName: w.zoneName,
-        x: parseFloat(w.x.toFixed(1)),
-        y: parseFloat(w.y.toFixed(1)),
-        ppeStatus: w.ppeStatus,
-        lastUpdated: w.lastUpdated
-      };
-    });
+    return Object.values(this.workers).map(w => this._public(w));
+  }
+
+  tick() {
+    Object.values(this.workers).forEach(w => this._updateWorker(w));
+    return this.getAllWorkers();
   }
 
   setWorkersInZone(zoneId, workerIds) {
@@ -116,10 +116,7 @@ class WorkerSimulator extends EventEmitter {
   }
 
   start(intervalMs = 1500) {
-    this._interval = setInterval(() => {
-      const workers = this.getAllWorkers();
-      this.emit('locations', workers);
-    }, intervalMs);
+    this._interval = setInterval(() => this.emit('locations', this.tick()), intervalMs);
   }
 
   stop() {

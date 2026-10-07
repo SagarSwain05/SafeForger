@@ -1,67 +1,31 @@
 #!/usr/bin/env bash
-# SafeForger CV Service — Launcher Script
-set -e
+# SafeForge Edge Vision Agent — launcher
+#   ./start_cv.sh demo   [backend_url]              loop bundled sample media (real inference)
+#   ./start_cv.sh webcam [camera_id] [device]       local webcam with preview window
+#   ./start_cv.sh rtsp   <camera_id> <rtsp_url>     IP camera
+#   ./start_cv.sh file   <camera_id> <video_path>   recorded footage (looped)
+#   ./start_cv.sh api                               HTTP inference API on :8000
+#   ./start_cv.sh calibrate [camera_id] [device]    homography calibration tool
+set -euo pipefail
+cd "$(dirname "$0")"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
-
-echo "╔══════════════════════════════════════════════╗"
-echo "║  SafeForger CV Service                        ║"
-echo "╚══════════════════════════════════════════════╝"
-
-# Check Python
-if ! command -v python3 &> /dev/null; then
-  echo "❌ Python 3 not found. Install Python 3.9+"
-  exit 1
+PY=${PYTHON:-python3}
+if [ ! -d venv ]; then
+  echo "Creating virtual environment…"
+  "$PY" -m venv venv
 fi
-echo "✓ Python: $(python3 --version)"
-
-# Check / create virtualenv
-if [ ! -d "venv" ]; then
-  echo "Creating virtual environment..."
-  python3 -m venv venv
-fi
+# shellcheck disable=SC1091
 source venv/bin/activate
-
-# Install dependencies
-echo "Installing requirements..."
 pip install -q -r requirements.txt
 
-# Mode selection
-MODE="${1:-mock}"
-CAMERA="${2:-CAM-01}"
-SOURCE="${3:-0}"
-
+export SAFEFORGE_BACKEND_URL="${SAFEFORGE_BACKEND_URL:-http://localhost:5001}"
+MODE="${1:-demo}"
 case "$MODE" in
-  webcam)
-    echo "▶  Starting webcam mode (device $SOURCE)..."
-    python main.py --camera "$CAMERA" --source "$SOURCE" --display
-    ;;
-  rtsp)
-    echo "▶  Starting RTSP mode: $SOURCE"
-    python main.py --camera "$CAMERA" --source "$SOURCE"
-    ;;
-  mock)
-    echo "▶  Starting MOCK mode (no camera required)..."
-    python main.py --camera "$CAMERA" --mock
-    ;;
-  calibrate)
-    echo "▶  Starting calibration for camera $CAMERA (source $SOURCE)..."
-    python calibration.py --camera "$CAMERA" --source "$SOURCE"
-    ;;
-  all)
-    echo "▶  Starting all enabled cameras in parallel..."
-    python main.py --all-cameras --mock
-    ;;
-  *)
-    echo "Usage: ./start_cv.sh [mock|webcam|rtsp|calibrate|all] [camera_id] [source]"
-    echo ""
-    echo "Examples:"
-    echo "  ./start_cv.sh mock                              # Demo mode, no camera"
-    echo "  ./start_cv.sh webcam CAM-01 0                  # Use system webcam"
-    echo "  ./start_cv.sh rtsp CAM-01 rtsp://192.168.1.100:554/stream  # IP camera"
-    echo "  ./start_cv.sh calibrate CAM-01 0               # Calibration tool"
-    echo "  ./start_cv.sh all                              # All cameras"
-    exit 1
-    ;;
+  demo)      python main.py --demo --camera CAM-02 --backend-url "${2:-$SAFEFORGE_BACKEND_URL}" ;;
+  webcam)    python main.py --camera "${2:-CAM-01}" --source "${3:-0}" --display --backend-url "$SAFEFORGE_BACKEND_URL" ;;
+  rtsp)      python main.py --camera "$2" --source "$3" --backend-url "$SAFEFORGE_BACKEND_URL" ;;
+  file)      python main.py --camera "$2" --source "$3" --loop --backend-url "$SAFEFORGE_BACKEND_URL" ;;
+  api)       uvicorn server:app --host 0.0.0.0 --port "${PORT:-8000}" ;;
+  calibrate) python calibration.py --camera "${2:-CAM-01}" --source "${3:-0}" ;;
+  *) sed -n '2,8p' "$0"; exit 1 ;;
 esac

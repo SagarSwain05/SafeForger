@@ -40,23 +40,11 @@ def draw_plant_layout(width=LAYOUT_W, height=LAYOUT_H) -> np.ndarray:
     img = np.zeros((height, width, 3), dtype=np.uint8)
     img[:] = (8, 15, 32)
 
-    zones = [
-        ("Z-01", 280, 130, 150, 160, "CDU", (60, 20, 20)),
-        ("Z-02", 460, 130, 120, 160, "HCU", (30, 40, 60)),
-        ("Z-03", 610, 110, 170, 180, "Tank Farm", (20, 50, 30)),
-        ("Z-04", 810, 130, 110, 150, "Utility", (30, 30, 50)),
-        ("Z-05", 950, 110, 130, 160, "Control", (20, 40, 50)),
-        ("Z-06", 280, 285, 110, 125, "Flare", (50, 20, 20)),
-        ("Z-07", 420, 290, 140, 125, "Pumps", (30, 20, 50)),
-        ("Z-08", 590, 290, 140, 125, "HX Bay", (20, 40, 40)),
-        ("Z-09", 765, 290, 140, 125, "Compressor", (30, 40, 20)),
-        ("Z-10", 940, 285, 150, 130, "Maintenance", (35, 35, 20)),
-        ("Z-11", 280, 420, 130, 120, "CS-01", (50, 30, 10)),
-        ("Z-12", 440, 420, 130, 120, "CS-02", (50, 30, 10)),
-        ("Z-13", 600, 430, 135, 110, "Loading", (20, 35, 40)),
-        ("Z-14", 765, 425, 140, 115, "Cooling", (20, 30, 50)),
-        ("Z-15", 930, 415, 145, 125, "Assembly", (20, 50, 20)),
-    ]
+    # Same zones as the dashboard map (backend/src/data/plant-layout.json)
+    from homography import load_layout
+    hazard_fill = {"CRITICAL": (20, 20, 70), "HIGH": (25, 25, 55), "MEDIUM": (20, 40, 50), "LOW": (30, 40, 25), "SAFE": (40, 35, 20)}
+    zones = [(z["id"], z["x"], z["y"], z["w"], z["h"], z["name"][:16], hazard_fill.get(z.get("hazardClass"), (30, 30, 40)))
+             for z in load_layout()["zones"]]
     for zone_id, x, y, w, h, label, color in zones:
         cv2.rectangle(img, (x, y), (x+w, y+h), color, -1)
         cv2.rectangle(img, (x, y), (x+w, y+h), (100, 140, 200), 1)

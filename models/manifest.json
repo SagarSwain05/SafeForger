@@ -1,0 +1,108 @@
+{
+  "version": "1.0.0",
+  "input_size": 640,
+  "models": {
+    "ppe": {
+      "file": "ppe.onnx",
+      "arch": "yolov8s",
+      "source": "https://huggingface.co/killuminati1/construction-ppe-yolov8",
+      "license": "Apache-2.0",
+      "labels": [
+        "Boots",
+        "Ear-Protection",
+        "Glass",
+        "Glove",
+        "Hard_hat",
+        "Mask",
+        "No-Boots",
+        "No-Ear-Protection",
+        "No-Glass",
+        "No-Glove",
+        "No-Helmet",
+        "No-Mask",
+        "No-Vest",
+        "Worker",
+        "Vest",
+        "Circular_Saw",
+        "Fire_Extinguisher",
+        "Fire_prevention_Net",
+        "Welding_Equipment"
+      ]
+    },
+    "fire": {
+      "file": "fire.onnx",
+      "arch": "yolov8n",
+      "source": "https://huggingface.co/rabahdev/fire-smoke-yolov8n",
+      "license": "AGPL-3.0",
+      "labels": [
+        "smoke",
+        "fire"
+      ]
+    }
+  },
+  "person_label": "Worker",
+  "ppe_items": {
+    "helmet": {
+      "present": "Hard_hat",
+      "absent": "No-Helmet",
+      "label": "Helmet"
+    },
+    "vest": {
+      "present": "Vest",
+      "absent": "No-Vest",
+      "label": "Hi-vis vest"
+    },
+    "boots": {
+      "present": "Boots",
+      "absent": "No-Boots",
+      "label": "Safety footwear"
+    },
+    "gloves": {
+      "present": "Glove",
+      "absent": "No-Glove",
+      "label": "Gloves"
+    },
+    "goggles": {
+      "present": "Glass",
+      "absent": "No-Glass",
+      "label": "Eye protection"
+    },
+    "mask": {
+      "present": "Mask",
+      "absent": "No-Mask",
+      "label": "Mask / respirator"
+    },
+    "ear": {
+      "present": "Ear-Protection",
+      "absent": "No-Ear-Protection",
+      "label": "Ear protection"
+    }
+  },
+  "context_labels": [
+    "Circular_Saw",
+    "Fire_Extinguisher",
+    "Fire_prevention_Net",
+    "Welding_Equipment"
+  ],
+  "default_required_ppe": [
+    "helmet",
+    "vest"
+  ],
+  "thresholds": {
+    "worker": 0.4,
+    "ppe": 0.35,
+    "violation": 0.4,
+    "context": 0.45,
+    "fire": 0.3,
+    "smoke": 0.35,
+    "iou": 0.45,
+    "fire_low": 0.15,
+    "fire_color_ratio": 0.15
+  },
+  "temporal": {
+    "window": 5,
+    "fire": 2,
+    "smoke": 3,
+    "ppe": 3
+  }
+}

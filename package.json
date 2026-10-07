@@ -1,11 +1,13 @@
 {
-  "name": "safeforger",
+  "name": "safeforge-nexus",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["frontend", "backend"],
+  "description": "SafeForge Nexus — AI safety fabric: PPE compliance, fire/smoke detection and compound-risk intelligence for industrial plants",
   "scripts": {
-    "dev:backend": "npm run dev --workspace=backend",
-    "dev:frontend": "npm run dev --workspace=frontend",
-    "install:all": "npm install"
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test": "npm --prefix backend test",
+    "build": "npm --prefix frontend run build"
   }
 }

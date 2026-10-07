@@ -97,36 +97,21 @@ class ScadaSimulator extends EventEmitter {
   }
 
   tick() {
-    // Update registers with realistic drift + noise
-    const gas = baselines.gas_sensor_profiles;
-    const temp = baselines.temperature_profiles;
-    const press = baselines.pressure_profiles;
-    const vib = baselines.vibration_profiles;
-
-    // Gas sensors
-    this.registers[30001].value = Math.max(0, this.registers[30001].value + this._noiseGaussian(0.25) + (this.scenario === 'KILL_CHAIN' ? 0.6 : gas.CH4.drift_rate_per_hour / 1800));
-    this.registers[30002].value = Math.max(0, this.registers[30002].value + this._noiseGaussian(0.15));
-    this.registers[30003].value = Math.max(0, this.registers[30003].value + this._noiseGaussian(0.5));
-    this.registers[30004].value = Math.min(25, Math.max(0, this.registers[30004].value + this._noiseGaussian(0.08) + (this.scenario === 'EMERGENCY' ? -0.08 : 0)));
-    this.registers[30005].value = Math.max(0, this.registers[30005].value + this._noiseGaussian(0.2));
-
-    // Temperature — realistic drift from process load
-    this.registers[30020].value = Math.max(20, Math.min(120, this.registers[30020].value + this._noiseGaussian(0.8)));
-    this.registers[30021].value = Math.max(25, Math.min(100, this.registers[30021].value + this._noiseGaussian(0.5)));
-
-    // Pressure
-    this.registers[30040].value = Math.max(0, Math.min(30, this.registers[30040].value + this._noiseGaussian(0.3)));
-    this.registers[30041].value = Math.max(0, Math.min(15, this.registers[30041].value + this._noiseGaussian(0.12)));
-
-    // Vibration — Case Western profile (slowly drifting up in degraded scenarios)
-    const vibDrift = this.scenario === 'EMERGENCY' ? 0.05 : this._noiseGaussian(0.15);
-    this.registers[30060].value = Math.max(0.5, Math.min(15, this.registers[30060].value + vibDrift));
-
-    // Equipment values drift
-    this.registers[40003].value = Math.max(60, Math.min(100, this.registers[40003].value + this._noiseGaussian(0.3)));
-    this.registers[40004].value = Math.max(0, Math.min(100, this.registers[40004].value + this._noiseGaussian(0.5)));
-    this.registers[40005].value = Math.max(8, Math.min(20, this.registers[40005].value + this._noiseGaussian(0.1)));
-    this.registers[40007].value = Math.max(0, Math.min(100, this.registers[40007].value + this._noiseGaussian(0.3)));
+    // Mean-reverting noise around each register's baseline (no unbounded random walk),
+    // with scenario targets for the kill-chain / emergency demos.
+    if (!this._base) this._base = Object.fromEntries(Object.entries(this.registers).map(([a, r]) => [a, r.value]));
+    const NOISE = { 30001: 0.12, 30002: 0.06, 30003: 0.35, 30004: 0.03, 30005: 0.1, 30020: 0.5, 30021: 0.3,
+      30040: 0.15, 30041: 0.06, 30060: 0.08, 40003: 0.2, 40004: 0.3, 40005: 0.06, 40006: 4, 40007: 0.2, 40008: 0.1 };
+    const TARGETS = {
+      KILL_CHAIN: { 30001: 7.6 },
+      EMERGENCY: { 30001: 24, 30004: 17.2, 30060: 8.5, 30020: 95 },
+    }[this.scenario] || {};
+    Object.entries(this.registers).forEach(([addr, reg]) => {
+      if (reg.type === 'EQUIPMENT' && reg.unit === 'enum') return;
+      const goal = TARGETS[addr] ?? this._base[addr];
+      const k = TARGETS[addr] !== undefined ? 0.08 : 0.15;
+      reg.value = Math.max(0, reg.value + k * (goal - reg.value) + (NOISE[addr] || 0.05) * this._noiseGaussian(1));
+    });
 
     // Random equipment state transitions
     Object.values(this.equipment).forEach(eq => {

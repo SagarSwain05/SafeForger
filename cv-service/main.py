@@ -1,226 +1,246 @@
 """
-SafeForger CV Service — Main Entry Point
-=======================================
-Supports:
-  --source 0              → Webcam (default)
-  --source /path/video.mp4 → Video file (for testing)
-  --source rtsp://...     → RTSP IP camera (production)
-  --camera CAM-01         → Camera ID from config.json
-  --display               → Show OpenCV window
-  --mock                  → Mock mode (no camera required, demo only)
+SafeForge Edge Vision Agent
+===========================
+Runs PPE-compliance and fire/smoke detection on a camera, RTSP stream, video
+file or image folder, and streams results to the SafeForge backend.
 
-Production RTSP:
-  python main.py --source "rtsp://admin:password@192.168.1.100:554/h264Preview_01_main"
+Examples:
+  python main.py --source ../samples/fire_outdoor.webm --camera CAM-02 --backend-url http://localhost:5001
+  python main.py --source 0 --camera CAM-01 --display                      # webcam
+  python main.py --source "rtsp://user:pass@10.0.0.20:554/stream1" --camera CAM-03
+  python main.py --source ../samples/no_ppe_street.jpg --once               # print JSON for one image
+  python main.py --demo --backend-url https://safeforger-backend.onrender.com   # loop the bundled samples
 
-Multi-camera: Run multiple instances with different --camera IDs.
+Backend URL can also be set with SAFEFORGE_BACKEND_URL; multi-camera: run one process per camera.
 """
 import argparse
-import cv2
 import json
 import logging
-import time
-import threading
+import os
+import signal
 import sys
+import time
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+import cv2
+
+from engine import TemporalConfirmer, VisionEngine, annotate
+from homography import HomographyEngine, load_layout
+from publisher import HttpPublisher, build_payload, encode_evidence
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("main")
 
+HERE = Path(__file__).resolve().parent
+SAMPLES = HERE.parent / "samples"
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-def load_config(path: str = "config.json") -> dict:
-    with open(path, "r") as f:
+
+def load_config(path: str) -> dict:
+    with open(path) as f:
         return json.load(f)
 
 
-def open_capture(source, camera_cfg: dict):
-    """
-    Open video capture from webcam, file, or RTSP URL.
-    Applies hardware buffer optimizations for low-latency real-time streams.
-    """
-    # Resolve source
-    if isinstance(source, str) and source.isdigit():
-        source = int(source)
+class FrameSource:
+    """Uniform iterator over webcam / RTSP / video file / image file / image folder / demo playlist."""
 
-    if isinstance(source, int):
-        cap = cv2.VideoCapture(source)
-        logger.info(f"Opened webcam device {source}")
-    elif isinstance(source, str) and source.startswith("rtsp://"):
-        # Production RTSP stream — configure for low latency
-        cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)       # Minimize frame buffer lag
-        cap.set(cv2.CAP_PROP_FPS, camera_cfg.get("fps", 15))
-        logger.info(f"Opened RTSP stream: {source[:40]}…")
-    elif isinstance(source, str) and Path(source).exists():
-        cap = cv2.VideoCapture(source)
-        logger.info(f"Opened video file: {source}")
-    else:
-        logger.warning(f"Source not found: {source}. Falling back to mock mode.")
-        return None
-
-    # Set resolution
-    w, h = camera_cfg.get("resolution", [1280, 720])
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-
-    if not cap.isOpened():
-        logger.error(f"Failed to open capture: {source}")
-        return None
-
-    return cap
-
-
-def run_camera(camera_id: str, config: dict, args):
-    """Main camera processing loop for a single camera."""
-    from detector import YOLODetector
-    from homography import HomographyEngine
-    from mqtt_client import SafeForgerMqttClient
-
-    cam_cfg = config["cameras"].get(camera_id, {})
-    if not cam_cfg.get("enabled", True) and not args.force:
-        logger.info(f"Camera {camera_id} disabled in config. Use --force to override.")
-        return
-
-    zone_id = cam_cfg.get("zone", "Z-01")
-    fps_target = cam_cfg.get("fps", 15)
-    frame_delay = 1.0 / fps_target
-    mock_mode = args.mock
-    config["_mock_mode"] = mock_mode
-
-    logger.info(f"=== SafeForger CV Service — {camera_id} ({zone_id}) ===")
-    logger.info(f"Mode: {'MOCK (no camera)' if mock_mode else 'LIVE'}")
-
-    # Initialize components
-    detector = YOLODetector(config)
-    homography = HomographyEngine(config)
-    mqtt = SafeForgerMqttClient(config)
-
-    # Open capture
-    cap = None
-    if not mock_mode:
-        source = args.source or cam_cfg.get("rtsp_url") or cam_cfg.get("source", 0)
-        cap = open_capture(source, cam_cfg)
-        if cap is None:
-            logger.warning("Capture failed — switching to mock mode")
-            mock_mode = True
-
-    frame_count = 0
-    last_heartbeat = 0
-    stats = {"worker_count": 0, "ppe_violations": 0, "smoke_detected": False}
-    window_name = f"SafeForger CCTV — {camera_id}"
-
-    logger.info("Starting detection loop…")
-
-    try:
-        while True:
-            loop_start = time.time()
-
-            # Read frame
-            if mock_mode or cap is None:
-                # Generate synthetic frame for demo
-                import numpy as np
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                frame[:] = (8, 12, 24)  # Dark background
-                cv2.putText(frame, f"SafeForger MOCK  {camera_id}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 80), 1)
-                detections = detector._mock_detection(frame)
+    def __init__(self, source, loop: bool = False, image_hold_s: float = 4.0):
+        self.loop = loop
+        self.image_hold_s = image_hold_s
+        self.items = []
+        self.cap = None
+        self.is_still = False
+        if isinstance(source, list):
+            self.items = source
+        elif isinstance(source, str) and source.isdigit():
+            self.items = [int(source)]
+        else:
+            p = Path(str(source))
+            if p.is_dir():
+                self.items = sorted(str(f) for f in p.iterdir() if f.suffix.lower() in IMAGE_EXT | {".mp4", ".webm", ".avi", ".mov", ".mkv"})
             else:
-                ret, frame = cap.read()
-                if not ret:
-                    logger.warning("Frame read failed — EOF or stream error")
-                    if cap.get(cv2.CAP_PROP_POS_FRAMES) >= cap.get(cv2.CAP_PROP_FRAME_COUNT) - 1:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video file
-                    time.sleep(0.1)
+                self.items = [source]
+        self.idx = -1
+        self._still = None
+        self._still_until = 0.0
+        self._next_item()
+
+    def _open(self, item):
+        if isinstance(item, str) and Path(item).suffix.lower() in IMAGE_EXT:
+            self._still = cv2.imread(item)
+            self._still_until = time.time() + self.image_hold_s
+            self.is_still = True
+            return self._still is not None
+        self.is_still = False
+        cap = cv2.VideoCapture(item, cv2.CAP_FFMPEG) if isinstance(item, str) and item.startswith(("rtsp://", "http")) else cv2.VideoCapture(item)
+        if isinstance(item, str) and item.startswith("rtsp://"):
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+        self.cap = cap if cap.isOpened() else None
+        return self.cap is not None
+
+    def _next_item(self) -> bool:
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        for _ in range(len(self.items)):
+            self.idx += 1
+            if self.idx >= len(self.items):
+                if not self.loop:
+                    return False
+                self.idx = 0
+            item = self.items[self.idx]
+            if self._open(item):
+                logger.info("Source: %s", item)
+                return True
+            logger.warning("Could not open source: %s", item)
+        return False
+
+    @property
+    def current(self):
+        return self.items[self.idx] if 0 <= self.idx < len(self.items) else None
+
+    def read(self):
+        while True:
+            if self.is_still:
+                if time.time() < self._still_until:
+                    return self._still
+            elif self.cap is not None:
+                ok, frame = self.cap.read()
+                if ok:
+                    return frame
+                # live streams: retry; files: advance
+                if isinstance(self.current, str) and self.current.startswith("rtsp://"):
+                    logger.warning("Stream read failed — reconnecting")
+                    time.sleep(1)
+                    self._open(self.current)
                     continue
-                detections = detector.detect(frame)
+            if not self._next_item():
+                return None
 
-            frame_count += 1
+    def release(self):
+        if self.cap is not None:
+            self.cap.release()
 
-            # Homography: map pixel → plant layout coords
-            detections = homography.map_detections(camera_id, detections)
 
-            # Update stats
-            stats = {
-                "worker_count": detections["worker_count"],
-                "ppe_violations": detections["ppe_violation_count"],
-                "smoke_detected": detections["smoke_detected"],
-            }
+def run(args):
+    config = load_config(args.config)
+    layout = load_layout(config.get("layout_path"))
+    cam_meta = next((c for c in layout.get("cameras", []) if c["id"] == args.camera), {})
+    zone_id = args.zone or cam_meta.get("zone") or config.get("cameras", {}).get(args.camera, {}).get("zone", "Z-01")
+    zone = next((z for z in layout["zones"] if z["id"] == zone_id), {})
+    required = zone.get("requiredPPE") or None
 
-            # Publish to MQTT (every 2 frames to reduce load)
-            if frame_count % 2 == 0:
-                mqtt.publish_vision_detection(camera_id, zone_id, detections, frame_count)
+    engine = VisionEngine(args.models_dir)
+    confirmer = TemporalConfirmer(engine.manifest.get("temporal", {}))
+    homography = HomographyEngine(config, layout)
 
-            # Aggregate heartbeat every 30s
-            now = time.time()
-            if now - last_heartbeat > 30:
-                mqtt.publish_heartbeat("RUNNING")
-                last_heartbeat = now
+    backend_url = args.backend_url or os.environ.get("SAFEFORGE_BACKEND_URL")
+    http = HttpPublisher(backend_url, os.environ.get("SAFEFORGE_API_KEY")) if backend_url and not args.once else None
+    mqtt = None
+    if args.mqtt:
+        from mqtt_client import SafeForgerMqttClient
+        mqtt = SafeForgerMqttClient(config)
 
-            # Display window (optional — disabled for server deployments)
-            if args.display and frame is not None:
-                annotated = detector.annotate_frame(frame, detections)
-                cv2.imshow(window_name, annotated)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    logger.info("Quit key pressed — stopping")
-                    break
+    if args.demo:
+        source = [str(SAMPLES / n) for n in ("no_ppe_street.jpg", "ppe_mixed_site.jpg", "fire_outdoor.webm", "smoke_warehouse.jpg", "ppe_compliant_crew.jpg")]
+        loop = True
+    else:
+        source = args.source if args.source is not None else str(config.get("cameras", {}).get(args.camera, {}).get("source", 0))
+        loop = args.loop
+    frames = FrameSource(source, loop=loop)
 
-            # Log every 100 frames
-            if frame_count % 100 == 0:
-                logger.info(f"[{camera_id}] Frame {frame_count} | Workers: {stats['worker_count']} | Violations: {stats['ppe_violations']} | Smoke: {stats['smoke_detected']}")
+    logger.info("Camera %s → zone %s (%s) | required PPE: %s | backend: %s | mqtt: %s",
+                args.camera, zone_id, zone.get("name", "?"), required or engine.manifest["default_required_ppe"],
+                backend_url or "-", "on" if mqtt else "off")
 
-            # Rate limiting
-            elapsed = time.time() - loop_start
-            sleep_time = frame_delay - elapsed
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+    stop = {"flag": False}
+    signal.signal(signal.SIGINT, lambda *_: stop.update(flag=True))
+    signal.signal(signal.SIGTERM, lambda *_: stop.update(flag=True))
 
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    finally:
-        if cap is not None:
-            cap.release()
+    last_publish, last_evidence, analysed = 0.0, {}, 0
+    t_start = time.time()
+    while not stop["flag"]:
+        loop_t = time.time()
+        frame = frames.read()
+        if frame is None:
+            logger.info("Source exhausted")
+            break
+        result = engine.detect(frame, required)
+        homography.map_workers(args.camera, result, zone_id)
+        events = confirmer.update(result, single_frame=args.once)
+        analysed += 1
+        fps = analysed / max(1e-6, time.time() - t_start)
+
+        if args.once:
+            print(json.dumps(build_payload(args.camera, zone_id, result, events, fps=fps), indent=2))
+            if args.save:
+                cv2.imwrite(args.save, annotate(frame, result, engine.manifest))
+            break
+
+        # Evidence: attach a frame when an event type is (re)confirmed, at most every 15 s per type
+        evidence = None
+        now = time.time()
+        fresh = [e["type"] for e in events if now - last_evidence.get(e["type"], 0) > 15]
+        if fresh:
+            evidence = encode_evidence(annotate(frame, result, engine.manifest))
+            for t in fresh:
+                last_evidence[t] = now
+
+        if http or mqtt:
+            if evidence or now - last_publish >= args.publish_every:
+                payload = build_payload(args.camera, zone_id, result, events, evidence=evidence, fps=fps)
+                if http:
+                    http.publish(payload)
+                if mqtt:
+                    mqtt.publish_vision(payload)
+                last_publish = now
+
+        if analysed % 20 == 0:
+            logger.info("[%s] %d frames | %.1f fps | workers=%d violations=%d fire=%s smoke=%s | events=%s",
+                        args.camera, analysed, fps, result["worker_count"], result["ppe_violations"],
+                        result["fire_detected"], result["smoke_detected"], [e["type"] for e in events] or "-")
+
         if args.display:
-            cv2.destroyAllWindows()
+            cv2.imshow(f"SafeForge — {args.camera}", annotate(frame, result, engine.manifest))
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        sleep = args.interval - (time.time() - loop_t)
+        if sleep > 0:
+            time.sleep(sleep)
+
+    frames.release()
+    if args.display:
+        cv2.destroyAllWindows()
+    if mqtt:
         mqtt.publish_heartbeat("STOPPED")
         mqtt.disconnect()
-        logger.info(f"Camera {camera_id} stopped after {frame_count} frames")
+    if http:
+        time.sleep(1.0)  # let the queue drain
+        logger.info("Published %d payloads (%d dropped)", http.sent, http.failed)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SafeForger CV Service — Industrial CCTV AI")
-    parser.add_argument("--source", type=str, default=None,
-                        help="Video source: 0 (webcam), /path/video.mp4, or rtsp://...")
-    parser.add_argument("--camera", type=str, default="CAM-01",
-                        help="Camera ID from config.json (default: CAM-01)")
-    parser.add_argument("--config", type=str, default="config.json",
-                        help="Path to config.json")
-    parser.add_argument("--display", action="store_true",
-                        help="Show OpenCV window (requires display)")
-    parser.add_argument("--mock", action="store_true",
-                        help="Mock mode — no camera required (for demo/testing)")
-    parser.add_argument("--force", action="store_true",
-                        help="Force run even if camera disabled in config")
-    parser.add_argument("--all-cameras", action="store_true",
-                        help="Run all enabled cameras in parallel threads")
-    args = parser.parse_args()
-
-    config = load_config(args.config)
-
-    if args.all_cameras:
-        threads = []
-        for cam_id, cam_cfg in config["cameras"].items():
-            if cam_cfg.get("enabled", True) or args.force:
-                t = threading.Thread(target=run_camera, args=(cam_id, config, args), daemon=True)
-                t.start()
-                threads.append(t)
-        logger.info(f"Started {len(threads)} camera threads")
-        for t in threads:
-            t.join()
-    else:
-        run_camera(args.camera, config, args)
+    ap = argparse.ArgumentParser(description="SafeForge Edge Vision Agent — PPE + fire/smoke detection")
+    ap.add_argument("--source", default=None, help="0 (webcam) | video/image file | image folder | rtsp://…")
+    ap.add_argument("--camera", default="CAM-01", help="Camera ID from plant-layout.json (default CAM-01)")
+    ap.add_argument("--zone", default=None, help="Override the camera's zone")
+    ap.add_argument("--backend-url", default=None, help="SafeForge backend base URL (or SAFEFORGE_BACKEND_URL)")
+    ap.add_argument("--mqtt", action="store_true", help="Also publish to the plant MQTT broker (config.json)")
+    ap.add_argument("--config", default=str(HERE / "config.json"))
+    ap.add_argument("--models-dir", default=None, help="Directory with manifest.json + ONNX models (default ../models)")
+    ap.add_argument("--interval", type=float, default=0.25, help="Seconds between analysed frames (default 0.25)")
+    ap.add_argument("--publish-every", type=float, default=1.0, help="Seconds between routine payloads (default 1.0)")
+    ap.add_argument("--loop", action="store_true", help="Loop file sources")
+    ap.add_argument("--demo", action="store_true", help="Loop the bundled sample media")
+    ap.add_argument("--once", action="store_true", help="Analyse a single frame and print the JSON payload")
+    ap.add_argument("--save", default=None, help="With --once: write the annotated image here")
+    ap.add_argument("--display", action="store_true", help="Show an OpenCV window")
+    args = ap.parse_args()
+    if not (args.demo or args.source is not None or args.once):
+        args.source = "0"
+    run(args)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
