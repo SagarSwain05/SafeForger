@@ -36,7 +36,7 @@ export default function EmergencyPage() {
           <h1 style={{ fontSize: 22, fontFamily: 'Orbitron, monospace', fontWeight: 800, color: isActive ? '#ff1744' : '#e8f0ff', letterSpacing: 1, animation: isActive ? 'emergencyFlash 0.5s ease-in-out infinite alternate' : 'none' }}>
             🚨 EMERGENCY RESPONSE
           </h1>
-          <div style={{ fontSize: 12, color: '#4a6080', marginTop: 4 }}>Autonomous orchestrator · DGMS/Factory Act incident reporting</div>
+          <div style={{ fontSize: 12, color: '#4a6080', marginTop: 4 }}>Autonomous response · permit suspension · evidence preservation · Factories Act s.88 preliminary report</div>
         </div>
         {isActive && (
           <button onClick={handleReset} disabled={resetting} style={{ padding: '10px 20px', borderRadius: 8, background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.4)', color: '#ff4444', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
@@ -97,8 +97,11 @@ export default function EmergencyPage() {
                 <span key={z} style={{ padding: '3px 10px', borderRadius: 12, background: 'rgba(255,23,68,0.15)', border: '1px solid rgba(255,68,68,0.3)', color: '#ff6b6b', fontSize: 11 }}>{z}</span>
               ))}
             </div>
+            {(emergencyState.suspendedPermits ?? []).length > 0 && (
+              <div style={{ fontSize: 12, color: '#ffb300', marginBottom: 12 }}>⛔ Permits suspended: {emergencyState.suspendedPermits.join(', ')}</div>
+            )}
             <div style={{ padding: 12, background: 'rgba(255,23,68,0.08)', borderRadius: 8, border: '1px solid rgba(255,68,68,0.2)', fontSize: 12, color: '#ff8080', lineHeight: 1.5 }}>
-              ⚠ All non-essential personnel must evacuate to Assembly Point A immediately. Emergency response teams mobilized.
+              ⚠ All personnel in the affected zones must evacuate to the Emergency Assembly area (Z-15) immediately. Emergency response teams mobilized.
             </div>
           </div>
         )}
@@ -130,7 +133,14 @@ export default function EmergencyPage() {
         <div className="glass-card" style={{ padding: 24, marginTop: 20, borderColor: 'rgba(0,176,255,0.2)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: '#00b0ff' }}>📋 {report.title} — {report.reportId}</h2>
-            <span style={{ padding: '3px 10px', borderRadius: 12, background: 'rgba(255,179,0,0.1)', color: '#ffb300', border: '1px solid rgba(255,179,0,0.3)', fontSize: 11 }}>{report.status}</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#8ba0c4' }}>{report.generatedBy}</span>
+              <button onClick={() => {
+                const blob = new Blob([`${report.title}\n${report.reportId} · ${report.plant} · ${report.generatedAt}\n\n${report.content}\n\nRegulatory: ${(report.regulatory || []).join('; ')}\n\nEvidence snapshot:\n${JSON.stringify(emergencyState?.evidenceSnapshot ?? {}, null, 2)}`], { type: 'text/plain' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${report.reportId}.txt`; a.click(); URL.revokeObjectURL(a.href);
+              }} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(0,176,255,0.1)', border: '1px solid rgba(0,176,255,0.3)', color: '#7dd3fc', fontSize: 11, cursor: 'pointer' }}>⬇ Download</button>
+              <span style={{ padding: '3px 10px', borderRadius: 12, background: 'rgba(255,179,0,0.1)', color: '#ffb300', border: '1px solid rgba(255,179,0,0.3)', fontSize: 11 }}>{report.status}</span>
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             {[['Report ID', report.reportId], ['Classification', report.classification], ['Plant', report.plant], ['Generated', new Date(report.generatedAt).toLocaleString()]].map(([k, v]) => (

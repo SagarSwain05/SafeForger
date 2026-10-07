@@ -1,0 +1,35 @@
+# Full local stack: backend (API + MQTT broker), dashboard, and a Python edge agent
+# streaming the bundled sample footage through the real models.
+#   docker compose up --build      → dashboard on http://localhost:3000
+services:
+  backend:
+    image: node:22-alpine
+    working_dir: /app/backend
+    command: sh -c "npm ci --omit=dev && node src/index.js"
+    environment:
+      PORT: "5001"
+      FRONTEND_URL: http://localhost:3000
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+    volumes: [".:/app"]
+    ports: ["5001:5001", "1883:1883"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5001/api/health"]
+      interval: 10s
+      retries: 12
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app/frontend
+    command: sh -c "npm ci && npm run build && npx next start -p 3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5001
+      NEXT_PUBLIC_WS_URL: http://localhost:5001
+    volumes: [".:/app"]
+    ports: ["3000:3000"]
+    depends_on: [backend]
+
+  edge-agent:
+    build: { context: ., dockerfile: cv-service/Dockerfile }
+    command: python main.py --demo --camera CAM-02 --backend-url http://backend:5001
+    depends_on:
+      backend: { condition: service_healthy }

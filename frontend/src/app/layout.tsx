@@ -2,18 +2,18 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { SocketProvider } from '@/lib/socket';
 import Sidebar from '@/components/Sidebar';
+import AlertToaster from '@/components/AlertToaster';
 
 export const metadata: Metadata = {
-  title: 'SafeForger — Industrial Safety Intelligence Platform',
-  description: 'AI-powered compound risk detection for industrial safety. Multi-agent system for IoT sensors, SCADA, permits, and CCTV integration.',
-  keywords: ['industrial safety', 'compound risk', 'IoT', 'SCADA', 'AI safety', 'permit-to-work'],
+  title: 'SafeForge Nexus — Industrial Safety Intelligence',
+  description: 'Real-time AI for factories: PPE compliance and fire/smoke detection from CCTV, compound-risk prediction across sensors, permits and people, and autonomous emergency response.',
+  keywords: ['industrial safety', 'PPE detection', 'fire detection', 'smoke detection', 'compound risk', 'CCTV AI', 'permit-to-work'],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
       </head>
       <body>
@@ -24,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {children}
             </main>
           </div>
+          <AlertToaster />
         </SocketProvider>
       </body>
     </html>

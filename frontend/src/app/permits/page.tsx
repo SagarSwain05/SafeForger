@@ -49,10 +49,16 @@ export default function PermitsPage() {
     setSubmitting(false);
   };
 
+  const [statusError, setStatusError] = useState('');
   const handleStatus = async (id: string, status: string) => {
-    await fetch(`${API_URL}/api/permits/${id}/status`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
+    setStatusError('');
+    const r = await fetch(`${API_URL}/api/permits/${id}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, by: 'Shift Supervisor' })
     });
+    if (r.status === 409) {
+      const body = await r.json();
+      setStatusError(`${id} blocked by permit intelligence: ${(body.validation?.violations ?? []).map((v: any) => v.message).join(' ')}`);
+    }
   };
 
   const active = permits.filter(p => p.status === 'ACTIVE');
@@ -79,6 +85,9 @@ export default function PermitsPage() {
         </div>
       </div>
 
+      {statusError && (
+        <div style={{ marginBottom: 16, padding: 12, background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.3)', borderRadius: 8, color: '#ff6b6b', fontSize: 13 }}>🚫 {statusError}</div>
+      )}
       {success && (
         <div style={{ marginBottom: 16, padding: 12, background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)', borderRadius: 8, color: '#00e676', fontSize: 13 }}>✓ {success}</div>
       )}

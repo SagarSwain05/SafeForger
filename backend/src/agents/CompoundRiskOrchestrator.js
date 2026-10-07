@@ -25,7 +25,7 @@ const RULES = [
         const hot = ps.filter(p => p.type === 'HOT_WORK');
         if (!hot.length) continue;
         const gas = sensors.filter(s => FLAMMABLE.includes(s.type) && kg.areAdjacent(zone, s.zone) &&
-          (s.value > 0.6 * s.warningThreshold || (fc[s.id]?.trend === 'WORSENING' && fc[s.id]?.etaWarningMin !== null && fc[s.id].etaWarningMin < 15)));
+          (s.value > 0.6 * s.warningThreshold || (s.value > 0.35 * s.warningThreshold && fc[s.id]?.trend === 'WORSENING' && fc[s.id]?.etaWarningMin !== null && fc[s.id].etaWarningMin < 15)));
         if (gas.length) {
           const g = gas.sort((a, b) => b.value / b.warningThreshold - a.value / a.warningThreshold)[0];
           hits.push({
@@ -47,7 +47,7 @@ const RULES = [
       for (const [zone, ps] of Object.entries(permitsByZone)) {
         const cs = ps.filter(p => p.type === 'CONFINED_SPACE');
         if (!cs.length) continue;
-        const o2 = sensors.find(s => s.type === 'O2' && s.zone === zone && (s.value < 20.0 || (fc[s.id]?.trend === 'WORSENING' && fc[s.id]?.etaWarningMin !== null && fc[s.id].etaWarningMin < 20)));
+        const o2 = sensors.find(s => s.type === 'O2' && s.zone === zone && (s.value < 20.0 || (s.value < 20.5 && fc[s.id]?.trend === 'WORSENING' && fc[s.id]?.etaWarningMin !== null && fc[s.id].etaWarningMin < 20)));
         if (o2) hits.push({ zones: [zone], details: `Confined-space entry ${cs.map(p => p.id).join(', ')} with O₂ at ${o2.value}% (safe minimum 19.5%)${fc[o2.id]?.trend === 'WORSENING' ? ' and falling' : ''}.`, sensors: [o2.id], permits: cs.map(p => p.id) });
       }
       return hits;
@@ -143,7 +143,7 @@ class CompoundRiskOrchestrator {
     this.last = { riskScore: 0, status: 'SAFE', alerts: [], zoneScores: {}, forecasts: [], leadTimeMin: null, timestamp: new Date().toISOString() };
   }
 
-  analyze({ sensors = [], permitsByZone = {}, vision = {}, workers = [], shift = null, forecasts = [] }) {
+  analyze({ sensors = [], permitsByZone = {}, vision = {}, workers = [], shift = null, forecasts = [], emergencyZones = [] }) {
     const fc = Object.fromEntries(forecasts.map(f => [f.sensorId, f]));
     const ctx = { sensors, permitsByZone, vision, workers, shift, fc, kg: this.kg, zones: this.zones };
 
@@ -192,6 +192,8 @@ class CompoundRiskOrchestrator {
       if (zoneRules.some(a => a.severity === 'CRITICAL')) score = Math.max(score, 85);
       else if (zoneRules.some(a => a.severity === 'HIGH')) score = Math.max(score, 50);
       if (v?.fire_detected) score = Math.max(score, 90);
+      // A zone under a declared emergency stays red until the emergency is stood down
+      if (emergencyZones.includes(z.id)) { score = Math.max(score, 90); drivers.push('EMERGENCY active'); }
       score = Math.min(100, Math.round(score));
       zoneScores[z.id] = { score, status: statusOf(score), drivers };
     }

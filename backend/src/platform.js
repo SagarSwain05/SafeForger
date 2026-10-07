@@ -50,7 +50,10 @@ const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next
 function createPlatform() {
   const app = express();
   const server = http.createServer(app);
-  const corsOrigin = config.corsOrigins.length ? config.corsOrigins : '*';
+  // Configured dashboard origins, plus any localhost port for local development
+  const corsOrigin = config.corsOrigins.length
+    ? (origin, cb) => cb(null, !origin || config.corsOrigins.includes(origin.replace(/\/$/, '')) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))
+    : '*';
   const io = new Server(server, { cors: { origin: corsOrigin, methods: ['GET', 'POST', 'PATCH'] }, maxHttpBufferSize: 4e6 });
   app.set('trust proxy', 1);
   app.use(cors({ origin: corsOrigin }));
@@ -112,6 +115,7 @@ function createPlatform() {
       workers: workerSim.getAllWorkers(),
       shift: shiftInfo,
       forecasts: state.forecasts,
+      emergencyZones: emergency.getState().active ? emergency.getState().affectedZones : [],
     });
     state.risk = risk;
     io.emit('risk:update', risk);

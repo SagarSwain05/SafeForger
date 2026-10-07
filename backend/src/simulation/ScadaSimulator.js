@@ -16,7 +16,7 @@ class ScadaSimulator extends EventEmitter {
 
   _initEquipment() {
     const eq = baselines.scada_equipment;
-    Object.entries(eq).forEach(([key, cfg]) => {
+    Object.entries(eq).filter(([key]) => !key.startsWith('_')).forEach(([key, cfg]) => {
       this.equipment[key] = {
         id: key,
         label: cfg.label,

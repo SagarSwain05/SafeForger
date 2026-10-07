@@ -1,25 +1,32 @@
+# Render Blueprint — SafeForge Nexus backend (Node.js API + WebSocket + agents)
+# Frontend is deployed on Vercel (see docs/DEPLOYMENT.md).
 services:
   - type: web
     name: safeforger-backend
-    env: node
+    runtime: node
     plan: free
     rootDir: backend
-    buildCommand: npm install
+    buildCommand: npm ci --omit=dev
     startCommand: node src/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
-      - key: PORT
-        value: 10000
       - key: NODE_ENV
         value: production
-      - key: GEMINI_KEY_1
+      - key: NODE_VERSION
+        value: "22"
+      # Only the HTTP port is reachable on Render; edge agents publish over HTTPS instead of MQTT
+      - key: MQTT_ENABLED
+        value: "false"
+      - key: FRONTEND_URL            # comma-separated dashboard origins allowed by CORS
         sync: false
-      - key: GEMINI_KEY_2
+      - key: PUBLIC_DASHBOARD_URL    # used for deep links in Telegram / webhook alerts
         sync: false
-      - key: GEMINI_KEY_3
+      - key: GEMINI_API_KEYS         # comma-separated Gemini keys (optional — rule-based fallbacks otherwise)
         sync: false
-      - key: GEMINI_KEY_4
+      - key: TELEGRAM_BOT_TOKEN      # optional real alert delivery
         sync: false
-      - key: GEMINI_KEY_5
+      - key: TELEGRAM_CHAT_ID
         sync: false
-      - key: FRONTEND_URL
+      - key: ALERT_WEBHOOK_URL       # optional Slack / Discord / Teams webhook
         sync: false

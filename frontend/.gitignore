@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# synced from ../models and ../samples at build time
+/public/models/
+/public/samples/
+!.env.example

@@ -26,7 +26,7 @@ export default function IncidentsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: finalQuery })
       });
       setResult(await r.json());
-    } catch { setResult({ answer: 'Backend unavailable. Start the server on port 5001.', sources: [], patterns: [] }); }
+    } catch { setResult({ answer: 'Backend unavailable — it may be waking up; try again in a moment.', sources: [], patterns: [] }); }
     setLoading(false);
   };
 
@@ -89,7 +89,10 @@ export default function IncidentsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {result.sources?.map((s: any, i: number) => (
                 <div key={i} className="glass-card" style={{ padding: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#00b0ff' }}>{s.code || s.id}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#00b0ff' }}>{s.ref ? `[${s.ref}] ` : ''}{s.code || s.id}</span>
+                    {s.kind && <span style={{ fontSize: 9, color: s.kind === 'historical' ? '#22c55e' : s.kind === 'regulation' ? '#7dd3fc' : '#ffb300', textTransform: 'uppercase' }}>{s.kind === 'representative' ? 'scenario' : s.kind}</span>}
+                  </div>
                   <div style={{ fontSize: 11, color: '#e8f0ff', marginTop: 2 }}>{s.title}</div>
                   {s.date && <div style={{ fontSize: 10, color: '#4a6080', marginTop: 2 }}>{s.date} · {s.location}</div>}
                 </div>

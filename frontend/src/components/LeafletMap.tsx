@@ -17,6 +17,8 @@ interface LeafletMapProps {
   selectedZone: string | null;
   onSelectZone: (zoneId: string | null) => void;
   zoneRiskScores: Record<string, number>;
+  vision?: Record<string, any>;
+  alerts?: any[];
 }
 
 const PLANT_W = 1180;
@@ -44,6 +46,8 @@ export default function LeafletMap({
   selectedZone,
   onSelectZone,
   zoneRiskScores,
+  vision = {},
+  alerts = [],
 }: LeafletMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -54,6 +58,7 @@ export default function LeafletMap({
     cameras: Record<string, any>;
     permits: Record<string, any>;
     heat: any[];
+    cv: any[];
   }>({
     zones: {},
     workers: {},
@@ -61,6 +66,7 @@ export default function LeafletMap({
     cameras: {},
     permits: {},
     heat: [],
+    cv: [],
   });
 
   useEffect(() => {
@@ -219,11 +225,16 @@ export default function LeafletMap({
       const reading = sensors.find((rs) => rs.id === s.id);
       const color = reading ? STATUS_COLOR[reading.status] ?? '#00e676' : '#4a6080';
 
+      const tip = `<div style="font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px; background: #080f1e; color: #fff; border-radius: 4px;">
+            <strong>${s.id} (${s.type})</strong><br/>
+            Value: <span style="font-family: monospace; color: ${color}">${reading ? reading.value.toFixed(1) + ' ' + reading.unit : 'N/A'}</span>
+           </div>`;
       if (layers.sensors[s.id]) {
         layers.sensors[s.id].setStyle({
           fillColor: color,
           color: color,
         });
+        layers.sensors[s.id].setTooltipContent(tip);
       } else {
         const marker = L.circleMarker([lat, lng], {
           radius: 8,
@@ -317,7 +328,47 @@ export default function LeafletMap({
       layers.permits[permit.id] = poly;
     });
 
-  }, [sensors, workers, permits, selectedZone, zoneRiskScores, layout]);
+    // 6. CCTV VISION — camera status colour, fire/smoke markers, CV-detected workers
+    layers.cv.forEach((m: any) => m.remove());
+    layers.cv = [];
+    layout.cameras.forEach((cam: any) => {
+      const d = vision[cam.zone];
+      const live = d && d.camera_id === cam.id;
+      const status = !live ? '#4a6080' : d.fire_detected ? '#f97316' : d.smoke_detected ? '#a3a3a3' : d.ppe_violations ? '#ef4444' : '#00e676';
+      const m = L.circleMarker([PLANT_H - cam.y, cam.x], { radius: 11, color: status, weight: 2, fill: false, interactive: false }).addTo(map);
+      layers.cv.push(m);
+      if (live && (d.fire_detected || d.smoke_detected)) {
+        const icon = L.marker([PLANT_H - cam.y - 22, cam.x], {
+          icon: L.divIcon({
+            className: 'cv-hazard',
+            html: `<div class="pulse-critical" style="font-size:20px;line-height:24px;width:26px;height:26px;text-align:center;border-radius:50%;background:rgba(249,115,22,0.25)">${d.fire_detected ? '🔥' : '💨'}</div>`,
+            iconSize: [26, 26], iconAnchor: [13, 13],
+          }),
+        }).addTo(map);
+        icon.bindTooltip(`${cam.id}: ${d.fire_detected ? 'FIRE' : 'SMOKE'} detected in ${cam.zone}`);
+        layers.cv.push(icon);
+      }
+      if (live) {
+        (d.mapped_positions || []).slice(0, 30).forEach((p: any) => {
+          if (!p.plant_coords) return;
+          const pm = L.circleMarker([PLANT_H - p.plant_coords[1], p.plant_coords[0]], {
+            radius: 4, fillColor: p.compliant === false ? '#ef4444' : '#22c55e', fillOpacity: 0.9, color: '#000', weight: 1,
+          }).addTo(map);
+          pm.bindTooltip(`CCTV person ${p.person_id}${p.missing?.length ? ' — missing ' + p.missing.join(', ') : ''}`);
+          layers.cv.push(pm);
+        });
+      }
+    });
+    // Open alert pins at their location
+    alerts.filter((a: any) => a.status !== 'RESOLVED' && a.location && ['FIRE', 'SMOKE', 'PPE_VIOLATION'].includes(a.type)).slice(0, 15).forEach((a: any) => {
+      const pin = L.circleMarker([PLANT_H - a.location.y, a.location.x], {
+        radius: 16, color: a.severity === 'CRITICAL' ? '#ff1744' : '#ff6d00', weight: 2, dashArray: '4,3', fill: false,
+      }).addTo(map);
+      pin.bindTooltip(`${a.title} (${a.status})`);
+      layers.cv.push(pin);
+    });
+
+  }, [sensors, workers, permits, selectedZone, zoneRiskScores, layout, vision, alerts]);
 
   return (
     <div

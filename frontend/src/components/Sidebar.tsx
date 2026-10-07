@@ -2,18 +2,20 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSocket } from '@/lib/socket';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const NAV = [
-  { href: '/',           icon: '⚡', label: 'Command Center' },
-  { href: '/heatmap',    icon: '🗺️', label: 'Safety Heatmap' },
-  { href: '/cctv',       icon: '📹', label: 'CCTV Intelligence' },
+  { href: '/',            icon: '⚡', label: 'Command Center' },
+  { href: '/vision',      icon: '🎯', label: 'Vision AI' },
+  { href: '/alerts',      icon: '🔔', label: 'Alert Center' },
+  { href: '/heatmap',     icon: '🗺️', label: 'Safety Heatmap' },
+  { href: '/cctv',        icon: '📹', label: 'Camera Wall' },
+  { href: '/permits',     icon: '📋', label: 'Permit-to-Work' },
+  { href: '/graph',       icon: '🕸️', label: 'Risk Graph' },
+  { href: '/incidents',   icon: '🔍', label: 'Incident RAG' },
+  { href: '/compliance',  icon: '✅', label: 'Compliance Audit' },
+  { href: '/emergency',   icon: '🚨', label: 'Emergency' },
   { href: '/calibration', icon: '📐', label: 'Spatial Calibration' },
-  { href: '/permits',    icon: '📋', label: 'Permit-to-Work' },
-  { href: '/incidents',  icon: '🔍', label: 'Incident RAG' },
-  { href: '/graph',      icon: '🕸️', label: 'Risk Graph' },
-  { href: '/emergency',  icon: '🚨', label: 'Emergency' },
-  { href: '/compliance', icon: '✅', label: 'Compliance Audit' },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -23,8 +25,17 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { connected, riskData, emergencyState } = useSocket();
+  const { connected, riskData, emergencyState, alertStats } = useSocket();
+  const openAlerts = alertStats?.open ?? 0;
   const [collapsed, setCollapsed] = useState(false);
+  // Collapse automatically on narrow screens
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)');
+    const apply = () => setCollapsed(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
 
   const riskScore = riskData?.riskScore ?? 0;
   const riskStatus = riskData?.status ?? 'SAFE';
@@ -56,9 +67,9 @@ export default function Sidebar() {
         {!collapsed && (
           <div>
             <div style={{ fontFamily: 'Orbitron, monospace', fontWeight: 800, fontSize: 16, color: '#00b0ff', letterSpacing: 1 }}>
-              SAFE<span style={{ color: '#ff4444' }}>FORGER</span>
+              SAFE<span style={{ color: '#ff4444' }}>FORGE</span>
             </div>
-            <div style={{ fontSize: 10, color: '#4a6080', marginTop: 2 }}>Industrial Safety AI</div>
+            <div style={{ fontSize: 10, color: '#4a6080', marginTop: 2 }}>Nexus · Industrial Safety AI</div>
           </div>
         )}
         {collapsed && <span style={{ fontSize: 20 }}>🛡️</span>}
@@ -115,6 +126,9 @@ export default function Sidebar() {
               >
                 <span style={{ fontSize: collapsed ? 18 : 15 }}>{icon}</span>
                 {!collapsed && <span>{label}</span>}
+                {!collapsed && href === '/alerts' && openAlerts > 0 && (
+                  <span style={{ marginLeft: 'auto', minWidth: 18, padding: '0 6px', height: 18, borderRadius: 9, background: alertStats?.openCritical ? '#ff1744' : '#ff6d00', color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{openAlerts}</span>
+                )}
                 {!collapsed && href === '/emergency' && isEmergency && (
                   <span style={{ marginLeft: 'auto', width: 8, height: 8, background: '#ff1744', borderRadius: '50%', animation: 'blink 1s step-end infinite' }} />
                 )}

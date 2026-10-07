@@ -62,7 +62,7 @@ class KnowledgeGraph {
       if (z) add({ id: zid, label: `${zid} ${z.name}`, type: 'ZONE', color: COLORS.ZONE, hazardClass: z.hazardClass });
     });
     relevant.forEach(zid => this.neighbours(zid).forEach(n => {
-      if (relevant.has(n) && zid < n) edges.push({ from: zid, to: n, label: 'adjacent_to', color: 'rgba(68,136,255,0.35)' });
+      if (relevant.has(n) && zid < n) edges.push({ from: zid, to: n, label: 'adjacent_to', color: '#2f4f80' });
     }));
 
     (state.sensors || []).forEach(s => {

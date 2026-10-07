@@ -40,3 +40,23 @@ test('knowledge graph adjacency is spatial', () => {
   assert.ok(!kg.areAdjacent('Z-01', 'Z-15'));
   assert.ok(kg.areAdjacent('Z-03', 'Z-03'));
 });
+
+test('noise near baseline never raises a CRITICAL compound risk (soak)', () => {
+  const S = require('../src/simulation/SensorSimulator');
+  const { forecastAll } = require('../src/services/forecast');
+  const Risk = require('../src/agents/CompoundRiskOrchestrator');
+  const { getActivePermitsByZone } = require('../src/data/permitStore');
+  const kg = new KnowledgeGraph(layout);
+  const risk = new Risk({ layout, kg });
+  const sim = new S();
+  let t = Date.now();
+  // Hot work active in Z-01 to make the gas rules as sensitive as possible
+  const permits = { ...getActivePermitsByZone(), 'Z-01': [{ id: 'HW', type: 'HOT_WORK', zone: 'Z-01' }] };
+  let criticals = 0;
+  for (let i = 0; i < 3000; i++) {
+    t += 2000; sim._step(t); sim.readings = sim._snapshot();
+    const r = risk.analyze({ sensors: sim.readings, permitsByZone: permits, forecasts: forecastAll(sim.readings) });
+    if (r.alerts.some(a => a.severity === 'CRITICAL')) criticals++;
+  }
+  assert.equal(criticals, 0, `${criticals} spurious CRITICAL evaluations in ~100 simulated minutes`);
+});

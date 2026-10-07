@@ -256,3 +256,21 @@ body::before {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Responsive page grids ── */
+.vision-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
+.alerts-grid { display: grid; grid-template-columns: minmax(280px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; }
+.cam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+@media (max-width: 1200px) {
+  .vision-grid, .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .alerts-grid { grid-template-columns: minmax(0, 1fr); }
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  main > div { padding: 16px !important; }
+}
+select, button, input { font-family: inherit; }

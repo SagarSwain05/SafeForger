@@ -4,7 +4,7 @@ import { API_URL } from '@/lib/socket';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 
 const STATUS_COLOR: Record<string, string> = {
-  COMPLIANT: '#00e676', OBSERVATION: '#ffb300', NON_COMPLIANT: '#ff1744'
+  COMPLIANT: '#00e676', OBSERVATION: '#ffb300', NON_COMPLIANT: '#ff1744', NO_DATA: '#64748b'
 };
 
 export default function CompliancePage() {
@@ -30,7 +30,7 @@ export default function CompliancePage() {
 
   const radarData = data.items?.map((item: any) => ({
     subject: item.standard.replace('OISD-', '').replace('Factory Act ', 'FA-').replace('DGMS ', ''),
-    score: item.score,
+    score: item.score ?? 0,
   }));
 
   const compliant = data.items?.filter((i: any) => i.status === 'COMPLIANT').length ?? 0;
@@ -82,25 +82,26 @@ export default function CompliancePage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
-                      <div style={{ height: '100%', width: `${item.score}%`, background: c, borderRadius: 3, transition: 'width 1s' }} />
+                      <div style={{ height: '100%', width: `${item.score ?? 0}%`, background: c, borderRadius: 3, transition: 'width 1s' }} />
                     </div>
-                    <span style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: c, width: 40, textAlign: 'right' }}>{item.score}%</span>
+                    <span style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: c, width: 40, textAlign: 'right' }}>{item.score == null ? '—' : `${item.score}%`}</span>
                   </div>
                   <div style={{ fontSize: 10, color: '#4a6080', marginTop: 6 }}>Last checked: {new Date(item.lastChecked).toLocaleTimeString()}</div>
 
-                  {item.status !== 'COMPLIANT' && (
+                  {item.evidence && <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 6, lineHeight: 1.5 }}>Evidence: {item.evidence}</div>}
+                  {item.status !== 'COMPLIANT' && item.status !== 'NO_DATA' && (
                     <div style={{ marginTop: 10, padding: 10, background: 'rgba(255,179,0,0.06)', borderRadius: 6, border: '1px solid rgba(255,179,0,0.15)' }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#ffb300', marginBottom: 4 }}>Corrective Actions Required:</div>
                       <ul style={{ paddingLeft: 14, margin: 0 }}>
-                        {item.status === 'NON_COMPLIANT' ? [
+                        {(item.status === 'NON_COMPLIANT' ? [
                           'Immediate permit suspension in affected zones',
                           'Safety officer review within 2 hours',
-                          'DGMS notification if condition persists >4 hours'
+                          'Notify the Inspector of Factories if the condition persists'
                         ] : [
                           'Schedule compliance review within 48 hours',
                           'Update procedure documentation',
                           'Brief shift supervisors on requirements'
-                        ].map((a, i) => (
+                        ]).map((a, i) => (
                           <li key={i} style={{ fontSize: 11, color: '#8ba0c4', marginBottom: 3 }}>{a}</li>
                         ))}
                       </ul>

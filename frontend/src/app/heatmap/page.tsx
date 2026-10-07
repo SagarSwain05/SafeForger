@@ -1,6 +1,6 @@
 'use client';
 
-import { useSocket } from '@/lib/socket';
+import { useSocket, api } from '@/lib/socket';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 
@@ -28,13 +28,12 @@ function getRiskColor(score: number): string {
 }
 
 export default function HeatmapPage() {
-  const { sensors, workers, permits, riskData } = useSocket();
+  const { sensors, workers, permits, riskData, cvDetections, alerts } = useSocket();
   const [layout, setLayout] = useState<any>(null);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001'}/api/plant-layout`)
-      .then(r => r.json())
+    api('/plant-layout')
       .then(setLayout)
       .catch(console.error);
   }, []);
@@ -68,24 +67,13 @@ export default function HeatmapPage() {
     workersByZone[w.zoneId].push(w);
   });
 
-  // Alert zones from risk engine
-  const alertZones = new Set<string>();
-  (riskData?.alerts ?? []).forEach((a: any) => (a.affectedZones ?? []).forEach((z: string) => alertZones.add(z)));
-
-  // Calculate zone risk scores
+  // Zone risk scores come from the backend risk engine (sensors + permits + CCTV + compound rules)
   const zoneRiskScores: Record<string, number> = {};
+  const zoneDrivers: Record<string, string[]> = {};
   layout.zones.forEach((zone: any) => {
-    const zoneSensors = sensorsByZone[zone.id] ?? [];
-    const zonePermits = permitsByZone[zone.id] ?? [];
-    let score = 0;
-    zoneSensors.forEach(s => {
-      if (s.status === 'CRITICAL') score += 30;
-      else if (s.status === 'WARNING') score += 15;
-    });
-    if (zonePermits.some(p => p.type === 'HOT_WORK')) score += 20;
-    if (zonePermits.some(p => p.type === 'CONFINED_SPACE')) score += 15;
-    if (alertZones.has(zone.id)) score += 25;
-    zoneRiskScores[zone.id] = Math.min(100, score);
+    const z = riskData?.zoneScores?.[zone.id];
+    zoneRiskScores[zone.id] = z?.score ?? 0;
+    zoneDrivers[zone.id] = z?.drivers ?? [];
   });
 
   const selected = layout.zones.find((z: any) => z.id === selectedZone);
@@ -131,6 +119,8 @@ export default function HeatmapPage() {
             selectedZone={selectedZone}
             onSelectZone={setSelectedZone}
             zoneRiskScores={zoneRiskScores}
+            vision={cvDetections}
+            alerts={alerts}
           />
         </div>
 
@@ -159,6 +149,22 @@ export default function HeatmapPage() {
                 ))}
               </div>
               {/* Zone workers */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: '#8ba0c4', marginBottom: 6 }}>Risk score {zoneRiskScores[selected.id] ?? 0}/100 — drivers</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {(zoneDrivers[selected.id] ?? []).length === 0 && <span style={{ fontSize: 11, color: '#4a6080' }}>Baseline hazard class only</span>}
+                  {(zoneDrivers[selected.id] ?? []).map((d: string) => <span key={d} className="tag-chip">{d}</span>)}
+                </div>
+                {cvDetections[selected.id] && (
+                  <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 8 }}>
+                    📹 {cvDetections[selected.id].camera_id}: {cvDetections[selected.id].worker_count} workers · {cvDetections[selected.id].ppe_violations} PPE violations{cvDetections[selected.id].fire_detected ? ' · 🔥 FIRE' : ''}{cvDetections[selected.id].smoke_detected ? ' · 💨 SMOKE' : ''}
+                  </div>
+                )}
+                {alerts.filter(a => a.zone === selected.id && a.status !== 'RESOLVED').slice(0, 3).map(a => (
+                  <a key={a.id} href={`/alerts?id=${a.id}`} style={{ display: 'block', fontSize: 11, color: a.severity === 'CRITICAL' ? '#ff6b6b' : '#ffb300', marginTop: 6, textDecoration: 'none' }}>⚠ {a.title} →</a>
+                ))}
+              </div>
+
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: '#8ba0c4', marginBottom: 6 }}>Workers in Zone ({(workersByZone[selected.id] ?? []).length})</div>
                 {(workersByZone[selected.id] ?? []).slice(0, 4).map((w: any) => (
@@ -185,7 +191,7 @@ export default function HeatmapPage() {
           <div className="glass-card" style={{ padding: 16 }}>
             <h3 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Zone Risk Scores</h3>
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-              {layout.zones.sort((a: any, b: any) => (zoneRiskScores[b.id] ?? 0) - (zoneRiskScores[a.id] ?? 0)).map((zone: any) => {
+              {[...layout.zones].sort((a: any, b: any) => (zoneRiskScores[b.id] ?? 0) - (zoneRiskScores[a.id] ?? 0)).map((zone: any) => {
                 const score = zoneRiskScores[zone.id] ?? 0;
                 const c = getRiskColor(score);
                 return (

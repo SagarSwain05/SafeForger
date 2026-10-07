@@ -1,6 +1,7 @@
 'use client';
-import { useSocket, API_URL } from '@/lib/socket';
-import { useState, useEffect, useRef } from 'react';
+import { useSocket, api } from '@/lib/socket';
+import { useState } from 'react';
+import Link from 'next/link';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -72,155 +73,143 @@ function AlertTicker({ alerts }: { alerts: any[] }) {
   );
 }
 
-function ScadaCard({ label, value, unit, status }: any) {
-  const c = status === 'FAULT' ? '#ff1744' : status === 'DEGRADED' ? '#ffb300' : '#00e676';
+function ScadaCard({ label, value, unit, state, normal }: any) {
+  const c = state === 'FAULT' || state === 'TRIPPED' ? '#ff1744' : state !== normal ? '#ffb300' : '#00e676';
   return (
-    <div className="glass-card" style={{ padding: 12, textAlign: 'center' }}>
-      <div style={{ fontSize: 9, color: '#4a6080', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 18, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: c }}>{value}</div>
-      <div style={{ fontSize: 10, color: '#4a6080' }}>{unit}</div>
-      <div style={{ marginTop: 6, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-        <div style={{ height: '100%', width: status === 'NORMAL' ? '100%' : status === 'DEGRADED' ? '60%' : '20%', background: c, borderRadius: 2, transition: 'all 1s' }} />
-      </div>
+    <div className="glass-card" style={{ padding: 10, textAlign: 'center' }}>
+      <div style={{ fontSize: 9, color: '#4a6080', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+      <div style={{ fontSize: 16, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: c }}>{value}</div>
+      <div style={{ fontSize: 10, color: '#4a6080' }}>{unit} · {state}</div>
     </div>
   );
 }
 
+const KILL_CHAIN_STEPS = [
+  { step: 'drift', title: '1 · Silent drift', text: 'CH4 in the Crude Distillation Unit creeps up — every sensor stays below its alarm. A threshold system sees nothing.' },
+  { step: 'permit', title: '2 · Hot-work permit issued', text: 'A paper hot-work permit goes live in the same zone, bypassing gas validation. SafeForge links the two instantly.' },
+  { step: 'reset', title: '↺ Reset demo', text: 'Restore baseline: normal gas, permits back to their seed state, emergency stood down.' },
+];
+
 export default function DashboardPage() {
-  const { sensors, riskData, emergencyState, shiftInfo, permits, connected } = useSocket();
-  const [scada] = useState([
-    { label: 'Crude Pump P-101', value: '94.2', unit: 'RPM%', status: 'NORMAL' },
-    { label: 'Compressor K-201', value: '88.7', unit: 'RPM%', status: 'NORMAL' },
-    { label: 'Heat Ex E-101', value: '67.3', unit: '°C', status: 'DEGRADED' },
-    { label: 'Valve FCV-301', value: 'OPEN', unit: '100%', status: 'NORMAL' },
-    { label: 'Boiler B-101', value: '12.4', unit: 'bar', status: 'NORMAL' },
-    { label: 'Cooling Tower', value: '89.1', unit: 'RPM%', status: 'NORMAL' },
-    { label: 'Flare KO Drum', value: 'LOW', unit: 'Level', status: 'NORMAL' },
-    { label: 'Storage V-401', value: '73.2', unit: '% Full', status: 'NORMAL' },
-  ]);
-  const [scenario, setScenario] = useState('NORMAL');
+  const { sensors, riskData, emergencyState, shiftInfo, permits, connected, scada, scenario, cvDetections, alerts, alertStats } = useSocket();
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
 
   const riskScore = riskData?.riskScore ?? 0;
   const riskStatus = riskData?.status ?? 'SAFE';
-  const alerts = riskData?.alerts ?? [];
+  const compound = riskData?.alerts ?? [];
   const scoreColor = STATUS_COLOR[riskStatus] ?? '#00e676';
   const isEmergency = emergencyState?.active;
+  const lead = riskData?.leadTimeMin;
+  const worsening = (riskData?.forecasts ?? []).filter((f: any) => f.trend === 'WORSENING');
 
-  const triggerScenario = async (s: string) => {
-    setScenario(s);
-    await fetch(`${API_URL}/api/scenario`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenario: s }) });
+  const runStep = async (step: string) => {
+    setBusy(step);
+    try {
+      const r = await api('/demo/kill-chain', { method: 'POST', json: { step } });
+      setNote(r.message + (r.riskScore !== undefined ? ` → risk ${r.riskScore} (${r.status})` : ''));
+    } catch (e: any) { setNote(`Could not reach backend: ${e.message}`); }
+    setBusy('');
   };
 
   const criticalCount = sensors.filter(s => s.status === 'CRITICAL').length;
   const warningCount = sensors.filter(s => s.status === 'WARNING').length;
-  const activePermits = permits.filter(p => p.status === 'ACTIVE').length;
+  const activePermits = permits.filter(p => p.status === 'ACTIVE');
+  const cams = Object.values(cvDetections) as any[];
+  const observed = cams.reduce((n, d) => n + (d.worker_count || 0), 0);
+  const violations = cams.reduce((n, d) => n + (d.ppe_violations || 0), 0);
+  const compliance = observed ? Math.round(((observed - violations) / observed) * 100) : null;
+  const openAlerts = alerts.filter(a => a.status !== 'RESOLVED').slice(0, 6);
+
+  const kpi = (label: string, value: any, color: string, sub: string, extra?: React.CSSProperties) => (
+    <div className="glass-card" style={{ padding: 16, ...extra }}>
+      <div style={{ fontSize: 10, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 34, fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11, color: '#4a6080', marginTop: 6 }}>{sub}</div>
+    </div>
+  );
 
   return (
     <div style={{ padding: 24, maxWidth: 1600 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontFamily: 'Orbitron, monospace', fontWeight: 800, color: '#e8f0ff', letterSpacing: 1 }}>
-            COMMAND CENTER
-          </h1>
+          <h1 style={{ fontSize: 22, fontFamily: 'Orbitron, monospace', fontWeight: 800, color: '#e8f0ff', letterSpacing: 1 }}>COMMAND CENTER</h1>
           <div style={{ fontSize: 12, color: '#4a6080', marginTop: 4 }}>
-            {shiftInfo ? `Shift ${shiftInfo.current} · Supervisor: ${shiftInfo.supervisor} · ${shiftInfo.workersOnSite} workers on-site` : 'Loading shift data…'}
+            {shiftInfo ? `Visakhapatnam Refinery Unit-3 (demo site) · Shift ${shiftInfo.current} · Supervisor ${shiftInfo.supervisor} · ${shiftInfo.workersOnSite} workers on site` : 'Connecting to plant…'}
           </div>
         </div>
-        {/* Scenario Controls */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: '#4a6080' }}>Demo Scenario:</span>
-          {['NORMAL', 'KILL_CHAIN', 'EMERGENCY'].map(s => (
-            <button key={s} onClick={() => triggerScenario(s)} style={{
-              padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
-              border: `1px solid ${scenario === s ? scoreColor : 'rgba(56,100,200,0.2)'}`,
-              background: scenario === s ? `${scoreColor}18` : 'rgba(10,18,40,0.5)',
-              color: scenario === s ? scoreColor : '#8ba0c4', transition: 'all 0.2s',
-            }}>{s.replace('_', ' ')}</button>
-          ))}
+          <span className="tag-chip">Scenario: {scenario.replace('_', ' ')}</span>
+          <Link href="/vision" style={{ padding: '8px 14px', borderRadius: 8, background: 'rgba(0,176,255,0.12)', border: '1px solid rgba(0,176,255,0.4)', color: '#7dd3fc', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>🎯 Open Vision AI</Link>
         </div>
       </div>
 
-      {/* Alert Ticker */}
-      {alerts.length > 0 && <div style={{ marginBottom: 16 }}><AlertTicker alerts={alerts} /></div>}
+      {compound.length > 0 && <div style={{ marginBottom: 16 }}><AlertTicker alerts={compound} /></div>}
 
-      {/* Emergency Banner */}
       {isEmergency && (
-        <div style={{
-          marginBottom: 20, padding: '14px 20px', borderRadius: 10, animation: 'emergencyFlash 0.5s ease-in-out infinite alternate',
-          border: '1px solid rgba(255,23,68,0.5)', display: 'flex', alignItems: 'center', gap: 12,
-        }}>
+        <div className="emergency-mode" style={{ marginBottom: 20, padding: '14px 20px', borderRadius: 10, border: '1px solid rgba(255,23,68,0.5)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 20 }}>🚨</span>
-          <div>
-            <div style={{ color: '#ff1744', fontWeight: 700, fontSize: 14 }}>EMERGENCY ACTIVE — {emergencyState.level}</div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ color: '#ff1744', fontWeight: 700, fontSize: 14 }}>EMERGENCY ACTIVE — {emergencyState.level}{emergencyState.auto ? ' (declared automatically)' : ''}</div>
             <div style={{ color: '#ff6b6b', fontSize: 12 }}>{emergencyState.triggeredBy}</div>
           </div>
-          <a href="/emergency" style={{ marginLeft: 'auto', padding: '6px 14px', background: '#ff1744', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>View Response →</a>
+          <Link href="/emergency" style={{ padding: '6px 14px', background: '#ff1744', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>View response →</Link>
         </div>
       )}
 
-      {/* KPI Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
-        {/* Risk Score */}
-        <div className="glass-card" style={{ padding: 16, gridColumn: 'span 1', background: `${scoreColor}0a`, borderColor: `${scoreColor}30` }}>
-          <div style={{ fontSize: 10, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>AI Risk Score</div>
-          <div style={{ fontSize: 40, fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{riskScore}</div>
-          <div style={{ fontSize: 11, color: scoreColor, fontWeight: 600, marginTop: 4 }}>{riskStatus}</div>
-          <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, marginTop: 8 }}>
-            <div style={{ height: '100%', width: `${riskScore}%`, background: scoreColor, borderRadius: 2, transition: 'width 1s' }} />
-          </div>
-        </div>
-        <div className="glass-card" style={{ padding: 16, background: criticalCount > 0 ? 'rgba(255,23,68,0.1)' : undefined }}>
-          <div style={{ fontSize: 10, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Critical Sensors</div>
-          <div style={{ fontSize: 36, fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: criticalCount > 0 ? '#ff1744' : '#00e676' }}>{criticalCount}</div>
-          <div style={{ fontSize: 11, color: '#4a6080' }}>{warningCount} warning</div>
-        </div>
-        <div className="glass-card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 10, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Active Permits</div>
-          <div style={{ fontSize: 36, fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#ffb300' }}>{activePermits}</div>
-          <div style={{ fontSize: 11, color: '#4a6080' }}>PTW in progress</div>
-        </div>
-        <div className="glass-card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 10, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Compound Risks</div>
-          <div style={{ fontSize: 36, fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: alerts.length > 0 ? '#ff5252' : '#00e676' }}>{alerts.length}</div>
-          <div style={{ fontSize: 11, color: '#4a6080' }}>rule violations</div>
-        </div>
-        <div className="glass-card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 10, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Live Sensors</div>
-          <div style={{ fontSize: 36, fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#448aff' }}>{sensors.length}</div>
-          <div style={{ fontSize: 11, color: connected ? '#00e676' : '#ff4444' }}>{connected ? '● Live stream' : '● Disconnected'}</div>
-        </div>
+      <div className="kpi-grid" style={{ marginBottom: 20 }}>
+        {kpi('AI risk score', riskScore, scoreColor, riskStatus, { background: `${scoreColor}0d`, borderColor: `${scoreColor}40` })}
+        {kpi('Lead time to alarm', lead != null ? `${lead}m` : '—', lead != null ? '#ffb300' : '#4a6080', lead != null ? 'worsening sensor near active work' : 'no worsening trend near work')}
+        {kpi('Open alerts', alertStats?.open ?? 0, (alertStats?.openCritical ?? 0) ? '#ff1744' : (alertStats?.open ?? 0) ? '#ff6d00' : '#00e676', `${alertStats?.openCritical ?? 0} critical · MTTA ${alertStats?.meanTimeToAcknowledgeSec != null ? alertStats.meanTimeToAcknowledgeSec + 's' : '—'}`)}
+        {kpi('PPE compliance', compliance != null ? `${compliance}%` : '—', compliance == null ? '#4a6080' : compliance >= 95 ? '#00e676' : compliance >= 80 ? '#ffb300' : '#ff1744', cams.length ? `${observed} workers on ${cams.length} camera(s)` : 'no camera streaming')}
+        {kpi('Sensors / permits', `${sensors.length}/${activePermits.length}`, criticalCount ? '#ff1744' : '#448aff', `${criticalCount} critical · ${warningCount} warning · ${connected ? 'live' : 'offline'}`)}
       </div>
 
-      {/* Main Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
-        {/* Sensor Grid */}
+      <div className="dash-grid">
         <div>
-          <h2 style={{ fontSize: 13, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>IoT Sensor Telemetry</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-            {sensors.map(s => <SensorCard key={s.id} s={s} />)}
+          {/* Kill-chain demo */}
+          <div className="glass-card" style={{ padding: 16, marginBottom: 20, borderColor: 'rgba(255,179,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+              <h2 style={{ fontSize: 13, fontWeight: 700, color: '#ffd166', textTransform: 'uppercase', letterSpacing: 1 }}>Kill-chain demo — compound risk in two steps</h2>
+              <span style={{ fontSize: 11, color: '#4a6080' }}>Watch the risk score, heatmap (Z-01) and alert toasts</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+              {KILL_CHAIN_STEPS.map(s => (
+                <button key={s.step} onClick={() => runStep(s.step)} disabled={!!busy} style={{ textAlign: 'left', padding: 12, borderRadius: 8, cursor: 'pointer', background: 'rgba(10,18,40,0.7)', border: `1px solid ${s.step === 'reset' ? 'rgba(56,100,200,0.3)' : 'rgba(255,179,0,0.35)'}`, opacity: busy && busy !== s.step ? 0.5 : 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: s.step === 'reset' ? '#8ba0c4' : '#ffd166' }}>{busy === s.step ? '⏳ ' : ''}{s.title}</div>
+                  <div style={{ fontSize: 11, color: '#8ba0c4', marginTop: 4, lineHeight: 1.45 }}>{s.text}</div>
+                </button>
+              ))}
+            </div>
+            {note && <div style={{ marginTop: 10, fontSize: 12, color: '#c7d2fe' }}>› {note}</div>}
+            {worsening.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {worsening.map((f: any) => (
+                  <span key={f.sensorId} className="tag-chip" style={{ color: '#ffb300', borderColor: 'rgba(255,179,0,0.35)' }}>
+                    ↑ {f.sensorId} {f.type} {f.value}{f.unit}{f.etaWarningMin ? ` · alarm in ~${f.etaWarningMin} min` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Compound Alerts */}
-          {alerts.length > 0 && (
-            <div style={{ marginTop: 20 }}>
-              <h2 style={{ fontSize: 13, fontWeight: 600, color: '#ff4444', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>⚠ Compound Risk Alerts</h2>
+          {compound.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <h2 style={{ fontSize: 13, fontWeight: 600, color: '#ff4444', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>⚠ Compound risks</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {alerts.map((a: any, i: number) => (
-                  <div key={i} className="glass-card" style={{
-                    padding: 16, borderColor: a.severity === 'CRITICAL' ? 'rgba(255,23,68,0.4)' : 'rgba(255,82,82,0.3)',
-                    background: a.severity === 'CRITICAL' ? 'rgba(255,23,68,0.08)' : 'rgba(255,82,82,0.06)',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: a.severity === 'CRITICAL' ? '#ff1744' : '#ff5252' }}>{a.name}</div>
-                      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, fontWeight: 700, background: 'rgba(255,23,68,0.15)', color: '#ff4444', border: '1px solid rgba(255,68,68,0.3)' }}>{a.severity}</span>
+                {compound.map((a: any) => (
+                  <div key={a.id} className="glass-card" style={{ padding: 16, borderColor: a.severity === 'CRITICAL' ? 'rgba(255,23,68,0.45)' : 'rgba(255,109,0,0.3)', background: a.severity === 'CRITICAL' ? 'rgba(255,23,68,0.07)' : 'rgba(255,109,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: a.severity === 'CRITICAL' ? '#ff1744' : '#ff9100' }}>{a.ruleId} · {a.name}</div>
+                      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, fontWeight: 700, background: 'rgba(255,23,68,0.15)', color: '#ff6b6b' }}>{a.severity}</span>
                     </div>
-                    <p style={{ fontSize: 12, color: '#8ba0c4', marginBottom: 8, lineHeight: 1.5 }}>{a.details}</p>
-                    <div style={{ fontSize: 11, color: '#4a6080', fontFamily: 'JetBrains Mono, monospace' }}>📚 {a.regulation}</div>
+                    <p style={{ fontSize: 12, color: '#c7d2fe', lineHeight: 1.5 }}>{a.details}</p>
+                    {a.chains?.[0] && <div style={{ fontSize: 11, color: '#8ba0c4', fontFamily: 'JetBrains Mono, monospace', marginTop: 6 }}>graph: {a.chains[0].join(' → ')}</div>}
+                    <div style={{ fontSize: 11, color: '#4a6080', marginTop: 6 }}>📚 {a.regulation} · ▶ {a.recommendedActions?.[0]}</div>
                     {a.aiRecommendation && (
-                      <div style={{ marginTop: 10, padding: 10, background: 'rgba(0,176,255,0.08)', borderRadius: 6, border: '1px solid rgba(0,176,255,0.15)' }}>
+                      <div style={{ marginTop: 10, padding: 10, background: 'rgba(0,176,255,0.07)', borderRadius: 6, border: '1px solid rgba(0,176,255,0.18)' }}>
                         <div style={{ fontSize: 10, color: '#00b0ff', fontWeight: 600, marginBottom: 4 }}>🤖 AI RECOMMENDATION</div>
-                        <p style={{ fontSize: 11, color: '#8ba0c4', lineHeight: 1.5 }}>{a.aiRecommendation}</p>
+                        <p style={{ fontSize: 11, color: '#c7d2fe', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{a.aiRecommendation}</p>
                       </div>
                     )}
                   </div>
@@ -228,51 +217,66 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          <h2 style={{ fontSize: 13, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>IoT sensor telemetry</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+            {sensors.map(s => <SensorCard key={s.id} s={s} />)}
+          </div>
         </div>
 
-        {/* Right Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* SCADA Status */}
           <div className="glass-card" style={{ padding: 16 }}>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>SCADA Equipment Status</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {scada.map(s => <ScadaCard key={s.label} {...s} />)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+              <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1 }}>Latest alerts</h2>
+              <Link href="/alerts" style={{ fontSize: 11, color: '#00b0ff', textDecoration: 'none' }}>All →</Link>
+            </div>
+            {openAlerts.length === 0 && <div style={{ fontSize: 12, color: '#4a6080' }}>No open alerts.</div>}
+            {openAlerts.map(a => (
+              <Link key={a.id} href={`/alerts?id=${a.id}`} style={{ display: 'block', textDecoration: 'none', padding: '8px 10px', marginBottom: 6, borderRadius: 6, background: 'rgba(10,18,40,0.5)', borderLeft: `3px solid ${a.severity === 'CRITICAL' ? '#ff1744' : a.severity === 'HIGH' ? '#ff6d00' : '#ffb300'}` }}>
+                <div style={{ fontSize: 12, color: '#e8f0ff', fontWeight: 600 }}>{a.title}</div>
+                <div style={{ fontSize: 10, color: '#8ba0c4' }}>{a.severity} · {a.zone || 'plant'} · {a.status.toLowerCase()} · {new Date(a.createdAt).toLocaleTimeString()}</div>
+              </Link>
+            ))}
+          </div>
+
+          <div className="glass-card" style={{ padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+              <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1 }}>CCTV vision</h2>
+              <Link href="/cctv" style={{ fontSize: 11, color: '#00b0ff', textDecoration: 'none' }}>Camera wall →</Link>
+            </div>
+            {cams.length === 0 && <div style={{ fontSize: 12, color: '#4a6080' }}>No camera streaming. <Link href="/vision" style={{ color: '#00b0ff' }}>Start a feed</Link> or run the Python edge agent.</div>}
+            {cams.map((d: any) => (
+              <div key={d.zone} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '6px 0', borderBottom: '1px solid rgba(56,100,200,0.1)' }}>
+                <span style={{ color: '#e8f0ff' }}>{d.camera_id} <span style={{ color: '#4a6080' }}>{d.zone}</span></span>
+                <span style={{ color: d.fire_detected ? '#f97316' : d.smoke_detected ? '#a3a3a3' : d.ppe_violations ? '#ef4444' : '#22c55e' }}>
+                  {d.fire_detected ? '🔥 fire' : d.smoke_detected ? '💨 smoke' : d.ppe_violations ? `${d.ppe_violations} PPE` : 'clear'} · {d.worker_count} workers
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="glass-card" style={{ padding: 16 }}>
+            <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>SCADA equipment (Modbus / OPC-UA, simulated)</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+              {(scada?.equipment ?? []).map((e: any) => <ScadaCard key={e.id} label={e.label} value={e.value} unit={e.unit} state={e.state} normal={e.normalState} />)}
+              {!scada && <div style={{ fontSize: 12, color: '#4a6080' }}>Waiting for SCADA…</div>}
             </div>
           </div>
 
-          {/* Active Permits */}
           <div className="glass-card" style={{ padding: 16 }}>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Active Permits</h2>
+            <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Active permits</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {permits.filter(p => p.status === 'ACTIVE').map(p => (
+              {activePermits.map(p => (
                 <div key={p.id} style={{ padding: 10, background: 'rgba(255,179,0,0.06)', borderRadius: 8, border: '1px solid rgba(255,179,0,0.2)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 11, fontWeight: 600, color: '#ffb300' }}>{p.icon} {p.typeKey?.replace('_', ' ')}</span>
                     <span style={{ fontSize: 10, color: '#4a6080' }}>{p.id}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#8ba0c4', marginTop: 4 }}>{p.zoneName}</div>
-                  <div style={{ fontSize: 10, color: '#4a6080', marginTop: 2 }}>{p.requestedBy} · {p.elapsedMinutes}m elapsed</div>
+                  <div style={{ fontSize: 11, color: '#8ba0c4', marginTop: 4 }}>{p.zoneName} ({p.zone})</div>
                 </div>
               ))}
-              {permits.filter(p => p.status === 'ACTIVE').length === 0 && (
-                <div style={{ fontSize: 12, color: '#4a6080', textAlign: 'center', padding: 12 }}>No active permits</div>
-              )}
+              {activePermits.length === 0 && <div style={{ fontSize: 12, color: '#4a6080', textAlign: 'center', padding: 12 }}>No active permits</div>}
             </div>
-          </div>
-
-          {/* Quick Links */}
-          <div className="glass-card" style={{ padding: 16 }}>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: '#8ba0c4', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Quick Actions</h2>
-            {[
-              { href: '/heatmap', label: 'View Safety Heatmap', icon: '🗺️', color: '#448aff' },
-              { href: '/permits', label: 'Raise New Permit', icon: '📋', color: '#ffb300' },
-              { href: '/incidents', label: 'Query Incident RAG', icon: '🔍', color: '#00b0ff' },
-              { href: '/emergency', label: 'Emergency Console', icon: '🚨', color: '#ff4444' },
-            ].map(a => (
-              <a key={a.href} href={a.href} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, textDecoration: 'none', color: a.color, fontSize: 12, marginBottom: 4, background: `${a.color}10`, transition: 'background 0.2s' }}>
-                <span>{a.icon}</span>{a.label}
-              </a>
-            ))}
           </div>
         </div>
       </div>
