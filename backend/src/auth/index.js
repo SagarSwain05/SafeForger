@@ -77,7 +77,22 @@ function requireAuth(auth) {
   };
 }
 
-function authRouter(auth, limiter) {
+/** Validate the plant chosen at sign-up: a directory entry, or a new plant to add. */
+function plantChoice(plant, directory) {
+  if (!plant) return null;
+  if (plant.directoryId) {
+    if (!directory?.get(plant.directoryId)) throw Object.assign(new Error('Selected plant was not found — search again'), { status: 400 });
+    return { directoryId: plant.directoryId };
+  }
+  if (plant.newPlant) {
+    const n = plant.newPlant;
+    if (String(n.name || '').trim().length < 3 || !n.state || !n.sector) throw Object.assign(new Error('New plant needs a name, state and sector'), { status: 400 });
+    return { newPlant: { name: String(n.name).trim().slice(0, 120), organization: String(n.organization || '').slice(0, 100), sector: n.sector, district: String(n.district || '').slice(0, 60), state: n.state } };
+  }
+  return null;
+}
+
+function authRouter(auth, limiter, directory) {
   const r = express.Router();
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -96,7 +111,10 @@ function authRouter(auth, limiter) {
     const existing = await auth.store.findOne('users', { email: e });
     if (existing && existing.verified) return res.status(409).json({ error: 'An account with this email already exists — sign in instead' });
 
+    let plantRef = null;
+    try { plantRef = plantChoice(req.body?.plant, directory); } catch (err) { return res.status(err.status).json({ error: err.message }); }
     const doc = {
+      plantRef,
       name: String(name).trim().slice(0, 80), email: e, passwordHash: hashPassword(password),
       role: ROLES.includes(role) ? role : 'Shift Supervisor', organization: String(organization || '').slice(0, 120),
       phone: String(phone || '').slice(0, 30), verified: !email.enabled(),

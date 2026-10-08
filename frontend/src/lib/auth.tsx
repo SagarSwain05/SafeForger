@@ -5,7 +5,8 @@ import { api, setApiSession, setUnauthorizedHandler } from './api';
 export interface User { id: string; email: string; name: string; role: string; organization: string; phone: string; verified: boolean; isDemo: boolean }
 export interface SiteDoc {
   id: string; name: string; company: string; sector: string; sectorLabel: string; kind: string;
-  location: { city: string; state: string; country: string }; description: string;
+  location: { city: string; state: string; country: string; lat?: number | null; lng?: number | null }; description: string;
+  joinRequests?: { email: string; name: string; role: string; requestedAt: string }[]; directoryId?: string | null;
   layout: { plant: any; zones: any[]; sensors: any[]; cameras: any[]; permitPPE: any };
   contacts: { name: string; role: string; email: string; phone: string }[];
   ingestKey?: string; canEdit: boolean; members?: string[]; mode?: 'live' | 'simulated';

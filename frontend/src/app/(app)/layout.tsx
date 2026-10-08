@@ -24,8 +24,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // Real accounts are attached to exactly one facility — select it automatically
     if (!user.isDemo && !attaching) {
       setAttaching(true);
-      api<any[]>('/sites', { timeoutMs: 75000 })
-        .then(async list => { if (list[0]) await selectSite(list[0].id); else if (!onSitePicker) router.replace('/sites'); })
+      api<any>('/me/facility', { timeoutMs: 75000 })
+        .then(async f => {
+          if (f.status === 'attached') { await selectSite(f.site.id); if (onSitePicker) router.replace('/dashboard'); }
+          else if (!onSitePicker) router.replace('/sites');
+        })
         .catch(() => { if (!onSitePicker) router.replace('/sites'); })
         .finally(() => setAttaching(false));
       return;

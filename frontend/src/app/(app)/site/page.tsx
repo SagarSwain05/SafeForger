@@ -55,6 +55,27 @@ export default function SitePage() {
         </div>
       </div>
       {msg && <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--c-green)' }}>✓ {msg}</div>}
+      {s.canEdit && (s.joinRequests || []).length > 0 && (
+        <div className="glass-card" style={{ padding: 14, marginBottom: 16, borderColor: 'rgba(217,119,6,0.45)' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#d97706', letterSpacing: 1 }}>JOIN REQUESTS ({s.joinRequests!.length})</div>
+          {s.joinRequests!.map(r => (
+            <div key={r.email} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{r.name} <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>· {r.role}</span></div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.email} · requested {new Date(r.requestedAt).toLocaleString()}</div>
+              </div>
+              <button className="btn-primary" style={{ padding: '6px 12px' }} onClick={async () => { await api(`/sites/${s.id}`, { method: 'PATCH', json: { approveJoin: r.email } }); await refreshSite(); setMsg(`${r.name} can now access ${s.name}`); }}>Approve</button>
+              <button className="btn-ghost" style={{ padding: '6px 12px' }} onClick={async () => { await api(`/sites/${s.id}`, { method: 'PATCH', json: { declineJoin: r.email } }); await refreshSite(); setMsg(`Declined ${r.email}`); }}>Decline</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {s.location?.lat != null && s.location?.lng != null && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          📍 {[s.location.city, s.location.state].filter(Boolean).join(', ')} · {s.location.lat.toFixed(4)}, {s.location.lng.toFixed(4)} ·{' '}
+          <a href={`https://www.openstreetmap.org/?mlat=${s.location.lat}&mlon=${s.location.lng}#map=14/${s.location.lat}/${s.location.lng}`} target="_blank" rel="noreferrer" style={{ color: 'var(--c-cyan)' }}>view on map</a>
+        </div>
+      )}
       {s.kind !== 'custom' && (
         <div className="glass-card" style={{ padding: 12, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
           {s.kind === 'sandbox' ? 'Fictional sandbox plant with simulated data (demo account).' : 'Digital twin based on a public facility name — simulated telemetry for the demo account, not affiliated with the operator.'} Make an editable copy to rename zones and cameras.

@@ -50,8 +50,9 @@ function sanitiseContacts(list) {
 }
 
 class SiteRegistry {
-  constructor({ store, io, shared }) {
+  constructor({ store, io, shared, directory }) {
     this.store = store;
+    this.directory = directory;
     this.io = io;
     this.shared = shared;
     this.presets = new Map(PRESETS.map(p => [p.id, presetSite(p)]));
@@ -113,7 +114,51 @@ class SiteRegistry {
     return errors;
   }
 
+  /**
+   * The real account's facility: attached site, a pending join request, or nothing yet.
+   * If the account picked a plant at sign-up (plantRef) it is provisioned here on first use.
+   */
+  async facilityFor(user) {
+    const site = await this.attachedSite(user);
+    if (site) return { status: 'attached', site: this.summary(site, user) };
+    const pending = (await this.store.find('sites', {})).find(x => (x.joinRequests || []).some(r => r.email === user.email));
+    if (pending) return { status: 'pending', site: { id: pending.id, name: pending.name, company: pending.company, owner: pending.ownerName || pending.ownerEmail, location: pending.location } };
+    if (user.plantRef?.directoryId) return this.linkPlant(user, { directoryId: user.plantRef.directoryId });
+    if (user.plantRef?.newPlant) return this.linkPlant(user, { newPlant: user.plantRef.newPlant });
+    return { status: 'none' };
+  }
+
+  /** Link a real account to a directory plant (or a newly added one): own it, or request to join. */
+  async linkPlant(user, { directoryId, newPlant }) {
+    if (user.isDemo) throw Object.assign(new Error('The demo account browses simulated plants'), { status: 400 });
+    const attached = await this.attachedSite(user);
+    if (attached) throw Object.assign(new Error(`Your account is already linked to ${attached.name}`), { status: 409 });
+    const entry = newPlant ? await this.directory.add(newPlant, user) : this.directory.get(directoryId);
+    if (!entry) throw Object.assign(new Error('Plant not found in the directory'), { status: 404 });
+    await this.store.updateOne('users', { id: user.id }, { plantRef: { directoryId: entry.id } });
+    const existing = await this.store.findOne('sites', { directoryId: entry.id });
+    if (existing) {
+      const reqs = existing.joinRequests || [];
+      if (!reqs.some(r => r.email === user.email) && !(existing.members || []).includes(user.email)) {
+        reqs.push({ email: user.email, name: user.name, role: user.role, requestedAt: new Date().toISOString() });
+        await this.store.updateOne('sites', { id: existing.id }, { joinRequests: reqs });
+      }
+      return { status: 'pending', site: { id: existing.id, name: existing.name, company: existing.company, owner: existing.ownerName || existing.ownerEmail, location: existing.location } };
+    }
+    const site = await this.create(user, { directoryId: entry.id });
+    return { status: 'attached', site: this.summary(site, user), created: true };
+  }
+
   async create(user, body) {
+    // From the all-India directory: one site per plant
+    const plant = body.directoryId ? this.directory?.get(body.directoryId) : null;
+    if (body.directoryId && !plant) throw Object.assign(new Error('Plant not found in the directory'), { status: 404 });
+    if (plant) {
+      const taken = await this.store.findOne('sites', { directoryId: plant.id });
+      if (taken) throw Object.assign(new Error(`${plant.name} is already set up on SafeForge — request to join it instead`), { status: 409 });
+      body = { ...body, name: body.name || plant.name, company: body.company || plant.operator || '', sector: plant.sector,
+        city: body.city || plant.district, state: body.state || plant.state };
+    }
     // Real accounts start from a real-facility template (or from scratch) and get one live site
     const template = body.templateId ? this.presets.get(body.templateId) : null;
     if (template) {
@@ -137,9 +182,10 @@ class SiteRegistry {
       id: `${slug(name)}-${crypto.randomBytes(3).toString('hex')}`,
       kind: 'custom', name, company: String(body.company || user.organization || '').slice(0, 100),
       sector: body.sector, sectorLabel: SECTORS[body.sector].label,
-      location: { city: String(body.city || '').slice(0, 60), state: String(body.state || '').slice(0, 60), country: String(body.country || 'India').slice(0, 60) },
+      location: { city: String(body.city || '').slice(0, 60), state: String(body.state || '').slice(0, 60), country: String(body.country || 'India').slice(0, 60), lat: plant?.lat ?? null, lng: plant?.lng ?? null },
       description: String(body.description || '').slice(0, 500),
-      ownerId: user.id, ownerEmail: user.email,
+      ownerId: user.id, ownerEmail: user.email, ownerName: user.name,
+      directoryId: plant?.id || null, joinRequests: [],
       members: (Array.isArray(body.members) ? body.members : []).map(e => String(e).trim().toLowerCase()).filter(e => e.includes('@')).slice(0, 20),
       contacts: sanitiseContacts(body.contacts),
       mode: user.isDemo ? 'simulated' : 'live',
@@ -173,6 +219,12 @@ class SiteRegistry {
       patch.layout = withLayout(next, { zones: body.sector && !body.zones ? undefined : zones, cameras: body.cameras || site.layout.cameras }).layout;
     }
     if (body.rotateKey) patch.ingestKey = crypto.randomBytes(16).toString('hex');
+    // Owner decides on colleagues who asked to join this plant
+    if (body.approveJoin || body.declineJoin) {
+      const email = String(body.approveJoin || body.declineJoin).toLowerCase();
+      patch.joinRequests = (site.joinRequests || []).filter(r => r.email !== email);
+      if (body.approveJoin) patch.members = [...new Set([...(patch.members || site.members || []), email])];
+    }
     const updated = await this.store.updateOne('sites', { id }, patch);
     this.restartRuntime(id);   // pick up the new layout / contacts
     return updated;

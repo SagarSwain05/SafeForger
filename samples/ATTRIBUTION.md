@@ -10,3 +10,9 @@ Sample images and video used for demos and tests.
 | `fire_flame.jpg` | [Fire 10.jpg](https://commons.wikimedia.org/wiki/File:Fire_10.jpg) | Gausanchennai | CC BY-SA 4.0 |
 | `fire_outdoor.webm` | [Perry Fire Video (43953516241).webm](https://commons.wikimedia.org/wiki/File:Perry_Fire_Video_(43953516241).webm) | BLM Nevada | Public domain |
 | `no_ppe_street.jpg` | [Ultralytics sample image](https://ultralytics.com/images/bus.jpg) | Ultralytics | AGPL-3.0 |
+
+## Plant directory data
+`backend/src/data/plant-directory.json` is built by `backend/scripts/build_plant_directory.py` from:
+- **Wikidata** (CC0): https://www.wikidata.org
+- **OpenStreetMap** (© OpenStreetMap contributors, ODbL 1.0): https://www.openstreetmap.org/copyright. The directory file is a derived database under the ODbL.
+- State boundaries for location lookup: **Natural Earth** (public domain).

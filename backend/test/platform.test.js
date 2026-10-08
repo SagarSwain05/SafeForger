@@ -367,3 +367,41 @@ test('real accounts: no demo plants, exactly one live facility, real inputs only
   assert.equal(mateSites[0].id, id);
   assert.equal((await g('/sites', { method: 'POST', body: { name: 'X', sector: 'cement' } }, mate)).status, 409);
 });
+
+test('sign-up plant linking: add a plant, own it, colleagues request to join, owner approves', async () => {
+  const meta = (await g('/directory/meta', {}, null)).body;
+  assert.ok(meta.states.length >= 36 && meta.sectors.some(s => s.id === 'manufacturing'));
+
+  // Owner signs up with a plant that is not in the directory yet
+  const plant = { newPlant: { name: 'Kakinada Agro Foods Unit 2', organization: 'Kakinada Agro', sector: 'manufacturing', district: 'Kakinada', state: 'Andhra Pradesh' } };
+  const owner = (await g('/auth/register', { method: 'POST', body: { name: 'Owner One', email: 'owner@kagro.in', password: 'Factory2026', plant } }, null)).body.token;
+  const fac = (await g('/me/facility', {}, owner)).body;
+  assert.equal(fac.status, 'attached', JSON.stringify(fac));
+  assert.equal(fac.site.mode, 'live');
+  assert.equal(fac.site.sector, 'manufacturing');
+  assert.equal(fac.site.name, 'Kakinada Agro Foods Unit 2');
+
+  // The new plant is now searchable for everyone (case-insensitive, partial words)
+  const found = (await g('/directory/search?q=kakinada agro', {}, null)).body.results;
+  assert.ok(found.length >= 1 && found[0].source === 'user');
+  const plantId = found[0].id;
+
+  // A colleague picks the same plant at sign-up → pending until the owner approves
+  const mate = (await g('/auth/register', { method: 'POST', body: { name: 'Shift Lead', email: 'lead@kagro.in', password: 'Factory2026', plant: { directoryId: plantId } } }, null)).body.token;
+  const pending = (await g('/me/facility', {}, mate)).body;
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.site.id, fac.site.id);
+  assert.equal((await call(`${root}/sites/${fac.site.id}/risk`, {}, mate)).status, 404, 'no access before approval');
+
+  const site = (await g(`/sites/${fac.site.id}`, {}, owner)).body;
+  assert.equal(site.joinRequests.length, 1);
+  assert.equal((await g(`/sites/${fac.site.id}`, { method: 'PATCH', body: { approveJoin: 'lead@kagro.in' } }, owner)).status, 200);
+  const after = (await g('/me/facility', {}, mate)).body;
+  assert.equal(after.status, 'attached');
+  assert.equal((await call(`${root}/sites/${fac.site.id}/risk`, {}, mate)).status, 200);
+
+  // Adding the same plant again re-uses the entry instead of duplicating it
+  const third = (await g('/auth/register', { method: 'POST', body: { name: 'Third', email: 'third@kagro.in', password: 'Factory2026', plant } }, null)).body.token;
+  assert.equal((await g('/me/facility', {}, third)).body.status, 'pending');
+  assert.equal((await g('/directory/search?q=kakinada agro', {}, null)).body.total, 1);
+});

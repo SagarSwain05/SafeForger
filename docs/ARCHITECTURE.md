@@ -50,6 +50,7 @@ flowchart LR
   - REST lives under `/api/sites/:siteId/*`.
   - Sockets authenticate with `{token, siteId}` and join the site's room.
   - Edge agents publish with the site's **ingest key** (`X-API-Key`).
+- **Plant directory.** `src/data/plant-directory.json` (Wikidata + OpenStreetMap, rebuilt by `scripts/build_plant_directory.py`), plus user-added plants in the `plants` collection. Search runs in memory with ranked word matching. Each directory plant has at most one live site (`site.directoryId`): the first user to link it becomes owner, and later users create `joinRequests` that the owner approves.
 - **Storage.** MongoDB when `MONGO_URI` is set, otherwise a JSON file.
 - **Modes.** *Simulated* sites (demo account) get a deterministic site profile seeded from the site ID and sector:
   - jittered map geometry

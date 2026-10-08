@@ -152,6 +152,21 @@ const SECTORS = {
     cameras: ['Bunkering Station', 'Hazardous Cargo Yard', 'Quay Crane 3', 'Ship Hold Hatch', 'Truck Gate', 'Control Centre Entry'],
     hotWork: 'Welding on bunkering pipeline support',
   },
+  manufacturing: {
+    label: 'General manufacturing',
+    zones: [
+      ['Paint & Coating Shop', 'HIGH', 'Solvent vapour', P.core], ['Fuel / LPG Yard', 'HIGH', 'ATEX-Zone1', P.core],
+      ['Raw Material Store', 'MEDIUM', 'Storage / forklifts', P.hv], ['Machine Shop', 'MEDIUM', 'Machinery', P.hv],
+      ['Production Control Room', 'SAFE', 'Safe', P.none], ['Welding & Fabrication Bay', 'MEDIUM', 'Hot work', P.core],
+      ['Assembly Line 1', 'MEDIUM', 'Machinery', P.hv], ['Assembly Line 2', 'MEDIUM', 'Machinery', P.hv],
+      ['Boiler & Compressor House', 'HIGH', 'Pressure', P.core], ['Maintenance Workshop', 'LOW', 'Workshop', P.hv],
+      ['Effluent Treatment Pit', 'CRITICAL', 'Confined-Space', P.cs], ['Storage Tank Interior', 'CRITICAL', 'Confined-Space', P.cs],
+      ['Dispatch & Loading Dock', 'MEDIUM', 'Vehicles / forklifts', P.core], ['Utility Block', 'LOW', 'Utility', P.hv],
+      ['Emergency Assembly', 'SAFE', 'Safe', P.none],
+    ],
+    cameras: ['Paint Shop', 'Fuel / LPG Yard', 'Assembly Line 1', 'Effluent Pit Hatch', 'Loading Dock', 'Control Room Entry'],
+    hotWork: 'Welding repair on a paint-shop duct',
+  },
   construction: {
     label: 'Construction / infrastructure site',
     zones: [

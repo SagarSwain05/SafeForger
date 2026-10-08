@@ -22,7 +22,7 @@ export default function VerifyPage() {
     try {
       const r = await api<{ token: string; user: User }>('/auth/verify', { method: 'POST', json: { email, code } });
       signIn(r.token, r.user);
-      router.push('/sites');
+      router.push('/dashboard');
     } catch (ex: any) { setErr(ex.message); }
     setBusy(false);
   };

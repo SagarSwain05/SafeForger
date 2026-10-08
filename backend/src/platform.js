@@ -18,6 +18,7 @@ const { AuthService, authRouter, requireAuth } = require('./auth');
 const { SiteRegistry, CONTACT_ROLES, DEFAULT_SITE_ID } = require('./sites/registry');
 const { SECTORS, SECTOR_LIST } = require('./sites/templates');
 const RAGAgent = require('./agents/RAGAgent');
+const { PlantDirectory } = require('./directory');
 const { SENSOR_PLANS, SENSOR_TYPES } = require('./sites/profile');
 
 const VERSION = require('../package.json').version;
@@ -80,7 +81,29 @@ function createPlatform() {
   app.use('/api', (req, res, next) => (ctx.auth ? next() : res.status(503).json({ error: 'Starting up — try again in a moment' })));
   const authed = (req, res, next) => requireAuth(ctx.auth)(req, res, next);
   let authRoutes = null;
-  app.use('/api/auth', (req, res, next) => (authRoutes = authRoutes || authRouter(ctx.auth, authLimiter))(req, res, next));
+  app.use('/api/auth', (req, res, next) => (authRoutes = authRoutes || authRouter(ctx.auth, authLimiter, ctx.directory))(req, res, next));
+
+  // ── All-India plant directory (public search for sign-up) ────────────────
+  const dirLimiter = rateLimit('directory', 120, 60000);
+  app.get('/api/directory/meta', (req, res) => res.json(ctx.directory.meta()));
+  app.get('/api/directory/search', dirLimiter, (req, res) => res.json(ctx.directory.search({
+    q: String(req.query.q || '').slice(0, 80), state: String(req.query.state || ''), sector: String(req.query.sector || ''), limit: Number(req.query.limit) || 25,
+  })));
+  app.get('/api/directory/:id', (req, res) => {
+    const p = ctx.directory.get(req.params.id);
+    return p ? res.json(p) : res.status(404).json({ error: 'Plant not found' });
+  });
+
+  // ── The signed-in real account's facility (link / pending / attached) ─────
+  app.get('/api/me/facility', authed, wrap(async (req, res) => {
+    if (req.user.isDemo) return res.json({ status: 'demo' });
+    res.json(await ctx.sites.facilityFor(req.user));
+  }));
+  app.post('/api/me/plant', authed, limiters.writeLimiter, wrap(async (req, res) => {
+    const { directoryId, newPlant } = req.body || {};
+    if (!directoryId && !newPlant) return res.status(400).json({ error: 'Choose a plant or add a new one' });
+    res.json(await ctx.sites.linkPlant(req.user, { directoryId, newPlant }));
+  }));
 
   app.post('/api/system/restart', authed, (req, res) => {
     if (Date.now() - lastRestart < 120000) return res.status(429).json({ error: 'A restart was requested less than 2 minutes ago' });
@@ -181,7 +204,8 @@ function createPlatform() {
     ctx.store = await createStore(config.store);
     ctx.auth = new AuthService(ctx.store);
     await ctx.auth.seedDemo();
-    ctx.sites = new SiteRegistry({ store: ctx.store, io, shared });
+    ctx.directory = await new PlantDirectory(ctx.store).load();
+    ctx.sites = new SiteRegistry({ store: ctx.store, io, shared, directory: ctx.directory });
     await startMqtt();
     return new Promise((resolve) => server.listen(port, () => resolve(server.address().port)));
   }

@@ -39,3 +39,6 @@ cv-service/venv/
 
 # Local file store
 backend/data/
+
+# Directory builder cache
+backend/scripts/.ne_admin1.geojson

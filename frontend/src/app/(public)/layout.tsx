@@ -13,7 +13,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             SAFE<span style={{ color: '#ef4444' }}>FORGE</span> <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 12, color: 'var(--text-muted)', letterSpacing: 0 }}>Nexus</span>
           </Link>
           <nav className="public-nav" style={{ display: 'flex', gap: 16, fontSize: 13 }}>
-            <a href="/#goals">Goals</a><a href="/#features">Features</a><a href="/#how">How it works</a><a href="/#industries">Industries</a>
+            <a href="/#goals">Goals</a><a href="/#features">Features</a><a href="/#find">Find your plant</a><a href="/#how">How it works</a><a href="/#industries">Industries</a>
           </nav>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
             <ThemeToggle compact />

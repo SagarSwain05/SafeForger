@@ -1,10 +1,10 @@
 'use client';
 import { ReactNode } from 'react';
 
-export default function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
+export default function AuthCard({ title, subtitle, children, footer, wide = false }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 16px' }}>
-      <div className="feature" style={{ width: '100%', maxWidth: 440, padding: 28 }}>
+      <div className="feature" style={{ width: '100%', maxWidth: wide ? 560 : 440, padding: 28 }}>
         <h1 style={{ fontSize: 22, color: 'var(--text-primary)', marginBottom: 6 }}>{title}</h1>
         {subtitle && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>{subtitle}</p>}
         {children}

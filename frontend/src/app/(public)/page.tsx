@@ -1,7 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import PlantPicker, { type PlantChoice } from '@/components/PlantPicker';
 import { api } from '@/lib/api';
 import { useAuth, type User } from '@/lib/auth';
 
@@ -39,6 +40,9 @@ export default function Landing() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [plantCount, setPlantCount] = useState<number | null>(null);
+  const [found, setFound] = useState<PlantChoice | null>(null);
+  useEffect(() => { api<{ total: number }>('/directory/meta', { timeoutMs: 75000 }).then(m => setPlantCount(m.total)).catch(() => {}); }, []);
 
   const tryDemo = async () => {
     if (user) { router.push('/dashboard'); return; }
@@ -74,7 +78,7 @@ export default function Landing() {
           Demo account: <code>{DEMO.email}</code> / <code>{DEMO.password}</code>
         </div>
         <div className="grid-3" style={{ marginTop: 36 }}>
-          {[['19', 'PPE classes detected (incl. missing gear)'], ['2 of 5', 'frames to confirm fire — no single-frame false alarms'], ['< 2 s', 'detection-to-alert on the dashboard'], ['10', 'industry sectors with real-facility twins']].map(([k, v]) => (
+          {[['19', 'PPE classes detected (incl. missing gear)'], ['2 of 5', 'frames to confirm fire — no single-frame false alarms'], ['< 2 s', 'detection-to-alert on the dashboard'], [plantCount ? plantCount.toLocaleString('en-IN') : '1000s', 'industrial plants across India you can link at sign-up']].map(([k, v]) => (
             <div key={v} className="feature" style={{ padding: 16 }}>
               <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--c-cyan)', fontFamily: 'JetBrains Mono, monospace' }}>{k}</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{v}</div>
@@ -131,6 +135,16 @@ export default function Landing() {
         <p className="lead">Start from a sector template with zones, hazard classes and PPE rules already set — or pick a digital twin of a well-known Indian facility — then connect your own cameras.</p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 20 }}>
           {SECTORS.map(s => <span key={s} className="tag-chip" style={{ fontSize: 13, padding: '6px 12px' }}>{s}</span>)}
+        </div>
+      </section>
+
+      {/* Plant finder */}
+      <section id="find" className="section" style={{ paddingTop: 24 }}>
+        <h2>Find your plant</h2>
+        <p className="lead">SafeForge&apos;s directory covers power stations, refineries, steel, cement, chemical, automotive and manufacturing plants, mines and ports across every Indian state. Find yours, then create an account linked to it. Not listed? Add it at sign-up.</p>
+        <div className="feature" style={{ padding: 18, marginTop: 18, maxWidth: 680 }}>
+          <PlantPicker value={found} onChange={setFound} />
+          {found && <Link href="/register" className="btn-primary" style={{ marginTop: 12, width: '100%' }}>This is my plant — create an account →</Link>}
         </div>
       </section>
 
