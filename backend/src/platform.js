@@ -23,6 +23,7 @@ const VERSION = require('../package.json').version;
 
 /** Tiny fixed-window rate limiter (per IP + bucket) — enough to protect a public demo. */
 function rateLimit(bucket, max, windowMs) {
+  max = Math.round(max * (Number(process.env.RATE_LIMIT_SCALE) || 1));   // raised in tests
   const hits = new Map();
   setInterval(() => hits.clear(), windowMs).unref();
   return (req, res, next) => {

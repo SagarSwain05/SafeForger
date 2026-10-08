@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 process.env.MQTT_ENABLED = 'false';
+process.env.RATE_LIMIT_SCALE = '20';
 for (let i = 1; i <= 5; i++) process.env[`GEMINI_KEY_${i}`] = '';
 process.env.GEMINI_API_KEYS = '';
 process.env.TELEGRAM_BOT_TOKEN = '';
@@ -120,6 +121,16 @@ test('custom site: create, isolate from other users, ingest with key', async () 
   // the demo site is unaffected
   assert.equal((await api('/alerts?type=PPE_VIOLATION')).body.length, 0);
   assert.equal((await g(`/sites/${id}`, { method: 'DELETE' })).status, 200);
+});
+
+test('shared demo account keeps only its 5 most recent custom sites', async () => {
+  for (let i = 0; i < 7; i++) {
+    const r = await g('/sites', { method: 'POST', body: { name: `Demo plant ${i}`, sector: 'cement' } });
+    assert.equal(r.status, 201);
+  }
+  const mine = (await g('/sites')).body.filter(s => s.kind === 'custom' && s.canEdit);
+  assert.equal(mine.length, 5);
+  assert.ok(mine.some(s => s.name === 'Demo plant 6') && !mine.some(s => s.name === 'Demo plant 0'));
 });
 
 test('system status reports storage and email modes', async () => {

@@ -27,6 +27,11 @@
 
 **Free-tier note:** the service sleeps after about 15 minutes idle. The first request takes 30–60 s. The sidebar status pill shows *Server waking up*; its panel has **Wake** (pings until the server is up), **Reconnect** and **Restart**. Restart asks the server to exit, and Render restarts it automatically. Plant simulation state is in memory and resets on restart.
 
+**Production configuration (Oct 2026):**
+- Storage: MongoDB Atlas, database `safeforge` (collections `users`, `sites`) on the shared cluster. SafeForge never touches the other databases there.
+- Email: Brevo transactional API, sender `sagar23swain@gmail.com` (the only verified sender), display name "SafeForge Nexus". Free plan: 300 emails/day.
+- The shared demo account keeps only its 5 most recent custom sites; older demo sites are removed automatically.
+
 ## Dashboard (Vercel)
 ```bash
 cd frontend

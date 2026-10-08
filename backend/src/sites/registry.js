@@ -85,8 +85,12 @@ class SiteRegistry {
   async create(user, body) {
     const errors = this._validate(body);
     if (errors.length) throw Object.assign(new Error(errors.join('; ')), { status: 400 });
-    const mineCount = (await this.store.find('sites', { ownerId: user.id })).length;
-    if (mineCount >= 10) throw Object.assign(new Error('Site limit reached (10 per account)'), { status: 400 });
+    const mine = await this.store.find('sites', { ownerId: user.id });
+    if (user.isDemo) {
+      // The demo account is shared publicly: keep only its 5 most recent custom sites
+      const old = mine.sort((x, y) => x.createdAt.localeCompare(y.createdAt)).slice(0, Math.max(0, mine.length - 4));
+      for (const o of old) { this.restartRuntime(o.id, false); await this.store.deleteOne('sites', { id: o.id }); }
+    } else if (mine.length >= 10) throw Object.assign(new Error('Site limit reached (10 per account)'), { status: 400 });
     const name = String(body.name).trim().slice(0, 80);
     const site = {
       id: `${slug(name)}-${crypto.randomBytes(3).toString('hex')}`,
