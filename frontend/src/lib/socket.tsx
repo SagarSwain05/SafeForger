@@ -40,12 +40,13 @@ interface SocketContextValue {
   connectError: string | null;
   lastEventAt: number | null;
   restarting: boolean;
+  siteInfo: any;
 }
 
 const SocketContext = createContext<SocketContextValue>({
   socket: null, connected: false, everConnected: false, sensors: [], workers: [], permits: [], riskData: null,
   emergencyState: null, shiftInfo: null, scada: null, scenario: 'NORMAL', cvDetections: {}, alerts: [], alertStats: null,
-  latestAlert: null, refreshAlerts: () => {}, reconnect: () => {}, connectError: null, lastEventAt: null, restarting: false,
+  latestAlert: null, refreshAlerts: () => {}, reconnect: () => {}, connectError: null, lastEventAt: null, restarting: false, siteInfo: null,
 });
 
 export function SocketProvider({ children }: { children: ReactNode }) {
@@ -68,6 +69,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [siteInfo, setSiteInfo] = useState<any>(null);
   const { token, siteId } = useAuth();
 
   const refreshAlerts = useCallback(() => {
@@ -87,6 +89,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     s.on('disconnect', () => setConnected(false));
     s.on('connect_error', (err: Error) => setConnectError(err.message));
     s.on('system:restarting', () => setRestarting(true));
+    s.on('site:info', setSiteInfo);
     s.onAny(() => setLastEventAt(Date.now()));
     s.on('sensors:initial', setSensors);
     s.on('sensors:update', setSensors);
@@ -134,7 +137,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   return (
     <SocketContext.Provider value={{
       socket, connected, everConnected, sensors, workers, permits, riskData, emergencyState, shiftInfo,
-      scada, scenario, cvDetections, alerts, alertStats, latestAlert, refreshAlerts, reconnect, connectError, lastEventAt, restarting,
+      scada, scenario, cvDetections, alerts, alertStats, latestAlert, refreshAlerts, reconnect, connectError, lastEventAt, restarting, siteInfo,
     }}>
       {children}
     </SocketContext.Provider>

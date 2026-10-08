@@ -144,7 +144,7 @@ export default function HeatmapPage() {
                 {(sensorsByZone[selected.id] ?? []).map((s: any) => (
                   <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--bg-hover)' }}>
                     <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{s.type}</span>
-                    <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: STATUS_COLOR[s.status] }}>{s.value?.toFixed(1)} {s.unit}</span>
+                    <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: STATUS_COLOR[s.status] }}>{s.value === null || s.value === undefined ? 'no data' : `${Number(s.value).toFixed(1)} ${s.unit}`}</span>
                   </div>
                 ))}
               </div>

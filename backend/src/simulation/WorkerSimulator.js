@@ -18,15 +18,16 @@ const WORKERS = [
 ];
 
 class WorkerSimulator extends EventEmitter {
-  constructor(layout = defaultLayout) {
+  constructor(layout = defaultLayout, roster = WORKERS) {
     super();
     this.workers = {};
+    this.roster = roster;
     this.zones = layout.zones;
     this._initializeWorkers();
   }
 
   _initializeWorkers() {
-    WORKERS.forEach(worker => {
+    this.roster.forEach(worker => {
       const zone = this.zones[Math.floor(Math.random() * this.zones.length)];
       this.workers[worker.id] = {
         ...worker,

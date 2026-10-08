@@ -8,7 +8,7 @@ export interface SiteDoc {
   location: { city: string; state: string; country: string }; description: string;
   layout: { plant: any; zones: any[]; sensors: any[]; cameras: any[]; permitPPE: any };
   contacts: { name: string; role: string; email: string; phone: string }[];
-  ingestKey?: string; canEdit: boolean; members?: string[];
+  ingestKey?: string; canEdit: boolean; members?: string[]; mode?: 'live' | 'simulated';
 }
 
 interface AuthValue {

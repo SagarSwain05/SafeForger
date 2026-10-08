@@ -31,7 +31,8 @@ The hackathon brief asked for a prototype that detects safety-gear compliance, s
 | Area | What you get |
 |---|---|
 | **Vision AI** | Two YOLOv8 models: PPE with 19 classes, including *missing* helmet/vest/boots/gloves, and fire/smoke. They run in the browser via WebGPU or multi-threaded WebAssembly, and in a Python edge agent for RTSP cameras. Sources: sample footage, uploaded video or photos, webcam, a camera's video URL, plus a **live webcam in the corner** of the stage as a second camera. **Per-worker tracking** keeps IDs stable and votes PPE state over 8 frames. Fire is confirmed in 2/5 frames, smoke and PPE in 3/5. |
-| **Sites & industries** | Sign in, then pick a digital twin of a real Indian facility (RINL Vizag Steel, Tata Steel Jamshedpur, HPCL Visakh, IOCL Panipat, NTPC Simhadri, Maruti Manesar, Mundra Port…) across **10 sectors**, or **create your own site**: zones and PPE rules, cameras (browser, webcam, video URL, RTSP via edge agent), emergency contacts and teammates. Every site runs in its own isolated runtime. |
+| **Two kinds of account** | **Demo account:** browses 20 simulated plants (3 sandboxes + digital twins of real Indian facilities across 10 sectors). Each plant is distinct: its own map, sector sensors and SCADA equipment, workforce, permits, and an **active situation** (e.g. *CO build-up — Coal Handling Plant*) with its own alerts, risk score and point of action. **Real accounts:** attached to **one facility**, created from a real-facility template or from scratch, with teammates by invitation. A real facility is **live**: it shows only real inputs (CCTV, sensor gateways, handheld readings, SCADA, badges). Anything not reporting shows *offline / no data*, never invented values. |
+| **Real-time inputs** | `POST /api/sites/:id/telemetry` (gas and process sensors), `/scada` (equipment states), `/presence` (badge/RFID) and `/vision/detections` (CCTV), each authenticated with the site ingest key. Includes `cv-service/telemetry_gateway.py` (Modbus TCP polling or CSV replay), the RTSP camera agent, and **Log a handheld reading** on the dashboard. Detectors silent for 2 minutes go OFFLINE. |
 | **Alerting** | Alert Center with evidence frame, location, routing to roles and site contacts, regulation references and recommended actions. Full-screen **siren** (two-tone wail plus strobe) for emergencies and unacknowledged critical alerts, with acknowledge and mute. Optional Telegram and webhook delivery. |
 | **Compound risk** | Knowledge graph of zones, sensors, permits, cameras and people with zone adjacency. 9 spatial rules, a 0–100 score per zone, trend forecasting, and **lead time to alarm**. |
 | **Permits** | Permit intelligence blocks unsafe permits (live gas, SIMOPS, CCTV PPE status); active permits add PPE requirements (e.g. hot work adds gloves and eye protection). |
@@ -71,7 +72,7 @@ Sign in with the demo account, choose **SafeForge Demo Refinery**, then try Visi
 ## Tests
 
 ```bash
-cd backend && npm test                 # 27 tests: auth, site isolation, ingest keys, kill chain, vision → alert, soak test, templates
+cd backend && npm test                 # 31 tests: auth, one-facility rule, live inputs, distinct demo plants, isolation, kill chain, vision → alert, soak
 cd cv-service && python -m pytest -q   # 10 tests: decoding, PPE association, samples, temporal logic
 cd frontend && npm run build           # type-check + production build
 ```

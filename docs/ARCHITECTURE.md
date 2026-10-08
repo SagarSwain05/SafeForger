@@ -51,6 +51,13 @@ flowchart LR
   - Sockets authenticate with `{token, siteId}` and join the site's room.
   - Edge agents publish with the site's **ingest key** (`X-API-Key`).
 - **Storage.** MongoDB when `MONGO_URI` is set, otherwise a JSON file.
+- **Modes.** *Simulated* sites (demo account) get a deterministic site profile seeded from the site ID and sector:
+  - jittered map geometry
+  - a sector sensor plan and baselines
+  - sector SCADA equipment, roster and extra permits
+  - one *active situation* that holds a sensor at warning level (soak-tested to never escalate to critical on its own)
+
+  *Live* sites (real accounts, one per account) run `LiveTelemetry`, `LiveScada` and `LiveWorkers` (badges + CCTV persons), fed only by the ingest endpoints. Stale inputs go OFFLINE and are excluded from the risk engine.
 
 ## Vision pipeline (identical on both edges)
 

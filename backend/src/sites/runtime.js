@@ -8,9 +8,11 @@ const incidents = require('../data/incidents.json');
 const regulations = require('../data/regulations.json');
 const scadaBaselines = require('../data/scada-baselines.json');
 const { PermitStore } = require('../data/permitStore');
+const { buildRuntimeProfile } = require('./profile');
+const { LiveTelemetry, LiveScada, LiveWorkers, shiftInfo } = require('../live');
 
 const SensorSimulator = require('../simulation/SensorSimulator');
-const { WorkerSimulator, WORKERS } = require('../simulation/WorkerSimulator');
+const { WorkerSimulator } = require('../simulation/WorkerSimulator');
 const ScadaSimulator = require('../simulation/ScadaSimulator');
 
 const { KnowledgeGraph } = require('../services/KnowledgeGraph');
@@ -45,18 +47,31 @@ class SiteRuntime {
     const layout = site.layout;
     this.layout = layout;
 
+    this.live = site.mode === 'live';
+    this.profile = buildRuntimeProfile(site);
+    const roster = this.profile.roster;
+    const sim = this.profile.sim;
+
     this.kg = new KnowledgeGraph(layout);
-    this.permits = new PermitStore(layout);
-    this.sensorSim = new SensorSimulator(layout);
-    this.workerSim = new WorkerSimulator(layout);
-    this.scadaSim = new ScadaSimulator(null);
+    this.permits = new PermitStore(layout, { seed: !this.live, extra: sim?.extraPermits, roster });
+    if (this.live) {
+      // Real inputs only — no simulators
+      this.telemetry = new LiveTelemetry(layout);
+      this.liveScada = new LiveScada();
+      this.workers = new LiveWorkers(layout, () => this.vision.liveByZone());
+    } else {
+      this.sensorSim = new SensorSimulator(layout, sim);
+      this.workerSim = new WorkerSimulator(layout, roster);
+      this.scadaSim = new ScadaSimulator(layout.equipment || [], site.id);
+      this.workers = this.workerSim;
+    }
     this.compliance = new ComplianceAgent();
     this.permitAgent = new PermitAgent({ kg: this.kg, layout, permits: this.permits });
     this.riskEngine = new CompoundRiskOrchestrator({ layout, kg: this.kg, permits: this.permits });
 
     // Site contacts (if configured) take precedence over the default shift roster for routing
     const contacts = (site.contacts || []).filter(c => c.name && c.role).map(c => ({ ...c, id: c.email || c.name }));
-    this.alerts = new AlertManager({ io: emitter, layout, roster: [...contacts, ...WORKERS], getPermits: (f) => this.permits.getPermits(f) });
+    this.alerts = new AlertManager({ io: emitter, layout, roster: [...contacts, ...(this.live ? [] : roster)], getPermits: (f) => this.permits.getPermits(f) });
     this.vision = new VisionHub({
       io: emitter, layout, alerts: this.alerts, config,
       getActivePermitsByZone: () => this.permits.getActivePermitsByZone(),
@@ -71,23 +86,25 @@ class SiteRuntime {
       raiseAlert: (e) => this.alerts.raise(e),
     });
 
-    this.shiftInfo = {
-      current: 'A', supervisor: contacts.find(c => c.role === 'Shift Supervisor')?.name || 'Deepika Patel',
+    const simShift = {
+      current: 'A', supervisor: contacts.find(c => c.role === 'Shift Supervisor')?.name || roster.find(w => w.role === 'Shift Supervisor')?.name,
       startTime: new Date(Date.now() - 3 * 3600000).toISOString(),
-      workersOnSite: WORKERS.length, nextChange: new Date(Date.now() + 5 * 3600000).toISOString(),
+      workersOnSite: roster.length, nextChange: new Date(Date.now() + 5 * 3600000).toISOString(),
     };
-    this.state = { sensors: this.sensorSim.getAllReadings(), scada: this.scadaSim.getState(), forecasts: [], risk: this.riskEngine.getLast(), scenario: 'NORMAL', homography: {} };
+    Object.defineProperty(this, 'shiftInfo', { get: () => (this.live ? shiftInfo(site, this.workers.getAllWorkers().length) : simShift) });
+    this.state = {
+      sensors: this.live ? this.telemetry.snapshot() : this.sensorSim.getAllReadings(),
+      scada: this.live ? this.liveScada.getState() : this.scadaSim.getState(),
+      forecasts: [], risk: this.riskEngine.getLast(), scenario: 'NORMAL', homography: {},
+    };
     this.compoundKeys = new Set();
     this.timers = [];
 
-    this.sensorSim.on('readings', (readings) => {
-      this.state.sensors = readings;
-      emitter.emit('sensors:update', readings);
-      this.sensorAlerts(readings);
-      this.recomputeRisk();
-    });
-    this.workerSim.on('locations', (w) => emitter.emit('workers:update', w));
-    this.scadaSim.on('scada:update', (s) => { this.state.scada = s; emitter.emit('scada:update', s); });
+    if (!this.live) {
+      this.sensorSim.on('readings', (readings) => this.onReadings(readings));
+      this.workerSim.on('locations', (w) => emitter.emit('workers:update', w));
+      this.scadaSim.on('scada:update', (s) => { this.state.scada = s; emitter.emit('scada:update', s); });
+    }
 
     this.vision.onFire((d) => {
       if (!config.vision.autoEmergencyOnFire) return;
@@ -103,9 +120,16 @@ class SiteRuntime {
   start() {
     if (this.running) return this;
     this.running = true;
-    this.sensorSim.start(config.simulation.sensorMs);
-    this.workerSim.start(config.simulation.workerMs);
-    this.scadaSim.start(config.simulation.scadaMs);
+    if (this.live) {
+      // Re-evaluate live inputs on a clock so stale detectors go OFFLINE and risk stays current
+      this.timers.push(setInterval(() => this.onReadings(this.telemetry.snapshot()), config.simulation.sensorMs));
+      this.timers.push(setInterval(() => this.emitter.emit('workers:update', this.workers.getAllWorkers()), 3000));
+      this.timers.push(setInterval(() => { this.state.scada = this.liveScada.getState(); this.emitter.emit('scada:update', this.state.scada); }, 10000));
+    } else {
+      this.sensorSim.start(config.simulation.sensorMs);
+      this.workerSim.start(config.simulation.workerMs);
+      this.scadaSim.start(config.simulation.scadaMs);
+    }
     this.timers.push(setInterval(() => this.vision.sweep(), 5000));
     this.recomputeRisk();
     console.log(`[Sites] runtime started: ${this.site.id}`);
@@ -115,7 +139,7 @@ class SiteRuntime {
   stop() {
     if (!this.running) return;
     this.running = false;
-    this.sensorSim.stop(); this.workerSim.stop(); this.scadaSim.stop();
+    if (!this.live) { this.sensorSim.stop(); this.workerSim.stop(); this.scadaSim.stop(); }
     this.timers.forEach(clearInterval);
     this.timers = [];
     this.emergency.reset();
@@ -124,17 +148,28 @@ class SiteRuntime {
 
   connectedClients() { return this.io?.sockets.adapter.rooms.get(this.room)?.size || 0; }
 
+  onReadings(readings) {
+    this.state.sensors = readings;
+    this.emitter.emit('sensors:update', readings);
+    this.sensorAlerts(readings);
+    this.recomputeRisk();
+  }
+
+  /** Only sensors that are actually reporting feed the risk engine. */
+  onlineSensors() { return this.state.sensors.filter(s => s.online !== false && s.value !== null); }
+
   broadcastPermits() { this.emitter.emit('permits:updated', this.permits.getPermits()); }
 
   recomputeRisk() {
     const { state } = this;
-    state.forecasts = forecastAll(state.sensors);
+    const online = this.onlineSensors();
+    state.forecasts = forecastAll(online);
     const em = this.emergency.getState();
     const risk = this.riskEngine.analyze({
-      sensors: state.sensors,
+      sensors: online,
       permitsByZone: this.permits.getActivePermitsByZone(),
       vision: this.vision.liveByZone(),
-      workers: this.workerSim.getAllWorkers(),
+      workers: this.workers.getAllWorkers(),
       shift: this.shiftInfo,
       forecasts: state.forecasts,
       emergencyZones: em.active ? em.affectedZones : [],
@@ -169,7 +204,7 @@ class SiteRuntime {
   sensorAlerts(readings) {
     for (const s of readings) {
       const key = `SENSOR:${s.id}`;
-      if (s.status === 'NORMAL') { this.alerts.clear(key); continue; }
+      if (s.status === 'NORMAL' || s.status === 'OFFLINE' || s.online === false) { this.alerts.clear(key); continue; }
       this.alerts.raise({
         key, type: 'SENSOR', severity: s.status === 'CRITICAL' ? 'HIGH' : 'MEDIUM', zone: s.zone, source: 'iot',
         title: `${s.type} ${s.status.toLowerCase()} — ${s.id}`,
@@ -181,6 +216,7 @@ class SiteRuntime {
   }
 
   setScenario(scenario) {
+    if (this.live) throw Object.assign(new Error('Live sites run on real inputs — scenarios are only for simulated demo plants'), { status: 409 });
     this.sensorSim.setScenario(scenario);
     this.scadaSim.setScenario(scenario);
     this.state.scenario = scenario;
@@ -192,7 +228,7 @@ class SiteRuntime {
     const s = this.state;
     socket.emit('site:info', this.publicSite());
     socket.emit('sensors:initial', s.sensors);
-    socket.emit('workers:initial', this.workerSim.getAllWorkers());
+    socket.emit('workers:initial', this.workers.getAllWorkers());
     socket.emit('permits:initial', this.permits.getPermits());
     socket.emit('shift:info', this.shiftInfo);
     socket.emit('emergency:state', this.emergency.getState());
@@ -206,7 +242,23 @@ class SiteRuntime {
 
   publicSite() {
     const { ingestKey, ...rest } = this.site;
-    return rest;
+    return { ...rest, situation: this.profile.sim?.situation || null };
+  }
+
+  /** What is actually connected — drives the live dashboard's empty states. */
+  connections() {
+    const now = Date.now();
+    const sensors = this.state.sensors;
+    const cams = this.vision.summary();
+    return {
+      mode: this.live ? 'live' : 'simulated',
+      cctv: { configured: this.layout.cameras.length, online: cams.camerasOnline, cameras: cams.cameras.filter(c => !c.stale).map(c => c.camera_id) },
+      sensors: { configured: sensors.length, online: sensors.filter(s => s.online !== false && s.value !== null).length, lastReading: Math.max(0, ...sensors.map(s => s.lastUpdated || 0)) || null },
+      scada: { connected: !!this.state.scada?.connected, equipment: (this.state.scada?.equipment || []).length, lastUpdate: this.state.scada?.lastUpdate || null },
+      presence: { people: this.workers.getAllWorkers().length },
+      permits: { active: this.permits.getPermits({ status: 'ACTIVE' }).length, total: this.permits.getPermits().length },
+      checkedAt: new Date(now).toISOString(),
+    };
   }
 
   status() {
@@ -240,7 +292,35 @@ class SiteRuntime {
       if (req.query.zone) regs = regs.filter(r => r.zone === req.query.zone);
       res.json({ count: regs.length, registers: regs, timestamp: state.scada.timestamp });
     });
-    api.get('/workers', (req, res) => res.json(this.workerSim.getAllWorkers()));
+    api.get('/workers', (req, res) => res.json(this.workers.getAllWorkers()));
+    api.get('/connections', (req, res) => res.json(this.connections()));
+
+    // ── Real inputs (live sites): gateways and devices use the site ingest key ──
+    const liveOnly = (res) => { res.status(409).json({ error: 'This is a simulated demo plant — real inputs are accepted on live sites' }); };
+    api.post('/telemetry', ingestLimiter, (req, res) => {
+      if (!this.live) return liveOnly(res);
+      const body = req.body || {};
+      const list = Array.isArray(body) ? body : Array.isArray(body.readings) ? body.readings : [body];
+      const source = req.user ? `manual:${req.user.name}` : String(body.source || 'gateway').slice(0, 30);
+      const r = this.telemetry.ingest(list, source);
+      if (r.accepted) self.onReadings(this.telemetry.snapshot());
+      res.status(r.accepted ? 200 : 400).json(r);
+    });
+    api.post('/scada', ingestLimiter, (req, res) => {
+      if (!this.live) return liveOnly(res);
+      const list = Array.isArray(req.body) ? req.body : req.body?.equipment;
+      const r = this.liveScada.ingest(list, String(req.body?.source || 'gateway').slice(0, 30));
+      this.state.scada = this.liveScada.getState();
+      self.emitter.emit('scada:update', this.state.scada);
+      res.status(r.accepted ? 200 : 400).json(r);
+    });
+    api.post('/presence', ingestLimiter, (req, res) => {
+      if (!this.live) return liveOnly(res);
+      const list = Array.isArray(req.body) ? req.body : req.body?.workers;
+      const r = this.workers.ingest(list, String(req.body?.source || 'badge').slice(0, 30));
+      self.emitter.emit('workers:update', this.workers.getAllWorkers());
+      res.status(r.accepted ? 200 : 400).json(r);
+    });
     api.get('/shift', (req, res) => res.json(this.shiftInfo));
 
     api.post('/vision/detections', ingestLimiter, (req, res) => {
@@ -312,10 +392,10 @@ class SiteRuntime {
 
     api.get('/risk', (req, res) => res.json(state.risk));
     api.get('/risk/graph', (req, res) => res.json(kg.snapshot({
-      sensors: state.sensors, permits: permits.getPermits(), workers: this.workerSim.getAllWorkers(),
+      sensors: this.onlineSensors(), permits: permits.getPermits(), workers: this.workers.getAllWorkers(),
       vision: vision.liveByZone(), alerts: state.risk.alerts, forecasts: state.forecasts,
     })));
-    api.get('/risk/paths', (req, res) => res.json(kg.compoundPaths({ sensors: state.sensors, permits: permits.getPermits(), vision: vision.liveByZone(), forecasts: state.forecasts })));
+    api.get('/risk/paths', (req, res) => res.json(kg.compoundPaths({ sensors: this.onlineSensors(), permits: permits.getPermits(), vision: vision.liveByZone(), forecasts: state.forecasts })));
 
     api.post('/rag/query', llmLimiter, asyncRoute(async (req, res) => {
       const query = String(req.body?.query || '').trim().slice(0, 500);
@@ -343,11 +423,12 @@ class SiteRuntime {
     api.get('/emergency/state', (req, res) => res.json(emergency.getState()));
 
     api.post('/scenario', writeLimiter, (req, res) => {
-      try { self.setScenario(req.body?.scenario || 'NORMAL'); } catch (err) { return res.status(400).json({ error: err.message }); }
+      try { self.setScenario(req.body?.scenario || 'NORMAL'); } catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
       res.json({ success: true, scenario: state.scenario });
     });
     api.get('/scenario', (req, res) => res.json({ scenario: state.scenario }));
     api.post('/demo/kill-chain', writeLimiter, (req, res) => {
+      if (this.live) return res.status(409).json({ error: 'The guided kill-chain demo runs on simulated plants only' });
       const step = req.body?.step;
       const hotWork = permits.getPermits().find(p => p.type === 'HOT_WORK' && p.zone === 'Z-01');
       const z1 = this.layout.zones[0].name;

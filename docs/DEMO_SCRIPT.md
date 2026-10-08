@@ -6,7 +6,9 @@ Open the dashboard about a minute before you present. The free hosting tier slee
 "Factories have the cameras and the sensors. The data exists, but nobody acts on it in time: a missing helmet on CCTV nobody is watching, smoke seen minutes late, a gas reading that looks normal until hot work starts next to it."
 
 ## 1b. Sign in and pick a site (20 s)
-On the home page press **Try the live demo**, which signs in as the demo supervisor. The site picker lists sandbox plants and digital twins of real facilities across 10 sectors. Choose **SafeForge Demo Refinery** for the guided demo, or show **Create a site** (sector template → zones and PPE → cameras → contacts).
+On the home page press **Try the live demo**, which signs in as the demo supervisor. The site picker lists sandbox plants and digital twins of real facilities across 10 sectors. Choose **SafeForge Demo Refinery** for the guided demo. Open two more plants (e.g. *Visakhapatnam Steel Plant*, *Gevra Opencast Mine*) to show that each has its own map, sensors, equipment and **site briefing** (active situation and point of action).
+
+To show a **real account**, register, then attach to a facility template. The dashboard switches to **LIVE DATA**: detectors show *no data* until a gateway or a supervisor's handheld reading reports, and there's no simulation and no kill-chain button.
 
 ## 2. PPE and fire detection on real footage (2 min) — Vision AI
 1. Open **Vision AI**. The models load once (about 57 MB, then cached). The chip shows *WebGPU* or *WASM*.

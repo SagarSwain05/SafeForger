@@ -317,11 +317,11 @@ export default function VisionPage() {
         <div>
           <div className="glass-card" style={{ padding: 12 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-              <select aria-label="Sample footage" value="" disabled={engineState !== 'ready'} style={selectStyle}
+              {site?.mode !== 'live' && <select aria-label="Sample footage" value="" disabled={engineState !== 'ready'} style={selectStyle}
                 onChange={e => { const s = SAMPLES.find(x => x.file === e.target.value); if (s) startMain({ kind: s.kind, url: `/samples/${s.file}`, name: s.label }); }}>
                 <option value="">▶ Sample footage…</option>
                 {SAMPLES.map(s => <option key={s.file} value={s.file}>{s.label}</option>)}
-              </select>
+              </select>}
               <label style={{ ...btnStyle, opacity: engineState === 'ready' ? 1 : 0.5 }}>
                 ⬆ Upload image / video
                 <input type="file" accept="image/*,video/*" hidden disabled={engineState !== 'ready'} onChange={e => e.target.files?.[0] && onUpload(e.target.files[0])} />
@@ -343,7 +343,7 @@ export default function VisionPage() {
               {!mainSource && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#94a3b8', textAlign: 'center', padding: 24 }}>
                   <div style={{ fontSize: 40 }}>🎥</div>
-                  <div style={{ fontSize: 14, color: '#e2e8f0' }}>Choose sample footage, upload a CCTV clip / photo, start a webcam, or pick a camera with a video URL</div>
+                  <div style={{ fontSize: 14, color: '#e2e8f0' }}>{site?.mode === 'live' ? 'Start a webcam, pick a camera with a stream URL, or upload recorded CCTV footage from your site' : 'Choose sample footage, upload a CCTV clip / photo, start a webcam, or pick a camera with a video URL'}</div>
                   <div style={{ fontSize: 12 }}>Tip: turn on the <strong>corner webcam</strong> to test live detection on yourself while footage plays — each feed reports as its own camera.</div>
                 </div>
               )}

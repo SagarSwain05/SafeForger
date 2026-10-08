@@ -225,11 +225,11 @@ export default function LeafletMap({
       const lng = s.x;
 
       const reading = sensors.find((rs) => rs.id === s.id);
-      const color = reading ? STATUS_COLOR[reading.status] ?? '#16a34a' : '#64748b';
+      const color = reading && reading.online !== false && reading.value !== null ? STATUS_COLOR[reading.status] ?? '#16a34a' : '#64748b';
 
       const tip = `<div style="font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px; background: #080f1e; color: #fff; border-radius: 4px;">
-            <strong>${s.id} (${s.type})</strong><br/>
-            Value: <span style="font-family: monospace; color: ${color}">${reading ? reading.value.toFixed(1) + ' ' + reading.unit : 'N/A'}</span>
+            <strong>${s.id} (${s.type})</strong>${s.label ? ' · ' + s.label : ''}<br/>
+            Value: <span style="font-family: monospace; color: ${color}">${reading && reading.value !== null && reading.value !== undefined ? Number(reading.value).toFixed(1) + ' ' + reading.unit + (reading.online === false ? ' (offline)' : '') : 'no data'}</span>
            </div>`;
       if (layers.sensors[s.id]) {
         layers.sensors[s.id].setStyle({
@@ -248,8 +248,8 @@ export default function LeafletMap({
 
         marker.bindTooltip(
           `<div style="font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px; background: #080f1e; color: #fff; border-radius: 4px;">
-            <strong>${s.id} (${s.type})</strong><br/>
-            Value: <span style="font-family: monospace; color: ${color}">${reading ? reading.value.toFixed(1) + ' ' + reading.unit : 'N/A'}</span>
+            <strong>${s.id} (${s.type})</strong>${s.label ? ' · ' + s.label : ''}<br/>
+            Value: <span style="font-family: monospace; color: ${color}">${reading && reading.value !== null && reading.value !== undefined ? Number(reading.value).toFixed(1) + ' ' + reading.unit + (reading.online === false ? ' (offline)' : '') : 'no data'}</span>
            </div>`
         );
 

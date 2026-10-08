@@ -12,7 +12,7 @@ export default function AppTopBar() {
   return (
     <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-panel)', position: 'sticky', top: 0, zIndex: 50, flexWrap: 'wrap' }}>
       <Link href="/" style={{ textDecoration: 'none', fontFamily: 'Orbitron, monospace', fontWeight: 800, fontSize: 16, color: 'var(--c-cyan)', letterSpacing: 1 }}>SAFE<span style={{ color: '#ef4444' }}>FORGE</span></Link>
-      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Choose a site to monitor</span>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{user?.isDemo ? 'Demo account · choose a simulated plant' : 'Set up your facility'}</span>
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ width: 190 }}><StatusWidget realtime={false} placement="down" /></div>
         {site && <button onClick={() => router.push('/dashboard')} style={btn}>← Back to {site.name.slice(0, 22)}</button>}

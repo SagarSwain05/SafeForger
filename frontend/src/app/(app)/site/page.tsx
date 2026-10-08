@@ -57,7 +57,7 @@ export default function SitePage() {
       {msg && <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--c-green)' }}>✓ {msg}</div>}
       {s.kind !== 'custom' && (
         <div className="glass-card" style={{ padding: 12, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
-          {s.kind === 'sandbox' ? 'Fictional sandbox plant.' : 'Digital twin template based on a public facility name — simulated telemetry, not affiliated with the operator.'} Make an editable copy to rename zones, attach your own cameras and add emergency contacts.
+          {s.kind === 'sandbox' ? 'Fictional sandbox plant with simulated data (demo account).' : 'Digital twin based on a public facility name — simulated telemetry for the demo account, not affiliated with the operator.'} Make an editable copy to rename zones and cameras.
         </div>
       )}
 
@@ -109,6 +109,43 @@ export default function SitePage() {
             {s.canEdit && <button className="btn-ghost" style={{ marginTop: 8, fontSize: 12 }} onClick={async () => { await api(`/sites/${s.id}`, { method: 'PATCH', json: { rotateKey: true } }); await refreshSite(); setMsg('Ingest key rotated — update your edge agents'); }}>↻ Rotate key</button>}
             <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>Ingest endpoint</div>
             <code style={codeBox}>POST {API_URL}/api/sites/{s.id}/vision/detections</code>
+          </section>
+
+          {s.mode === 'live' && (
+            <section className="glass-card" style={{ padding: 16, borderColor: 'rgba(22,163,74,0.35)' }}>
+              <h2 style={h2}>Real-time inputs</h2>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                This facility is <strong>live</strong>: every value on the dashboard comes from these feeds. Send them from your gas-detection controller, SCADA/historian or access-control system (or a small gateway script) using the ingest key. Detectors that stop reporting for 2 minutes show as OFFLINE.
+              </p>
+              {[
+                ['Gas / process sensors', 'telemetry', `{"readings":[{"sensorId":"${s.layout.sensors[0]?.id || 'S-GAS-01'}","value":4.2}]}`],
+                ['SCADA equipment states', 'scada', '{"equipment":[{"id":"P-101","label":"Charge pump","zone":"Z-01","state":"RUNNING","value":1480,"unit":"RPM"}]}'],
+                ['Badge / RFID presence', 'presence', '{"workers":[{"id":"B-1042","name":"A. Kumar","role":"Fitter","zone":"Z-07"}]}'],
+              ].map(([label, ep, body]) => {
+                const cmd = [`curl -X POST ${API_URL}/api/sites/${s.id}/${ep} \\`, `  -H "Content-Type: application/json" -H "X-API-Key: ${showKey ? s.ingestKey : '<INGEST_KEY>'}" \\`, `  -d '${body}'`].join('\n');
+                return (
+                  <div key={ep} style={{ marginTop: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-primary)', fontWeight: 700 }}>
+                      {label}<button className="btn-ghost" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => copy(cmd, `${label} example`)}>Copy</button>
+                    </div>
+                    <pre style={pre}>{cmd}</pre>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+                Or run the bundled gateway (CSV replay or Modbus TCP polling): <code style={{ ...codeBox, display: 'inline', padding: '1px 6px' }}>python cv-service/telemetry_gateway.py --site {s.id} --api-key &lt;key&gt; --modbus 10.0.0.5:502 --map registers.json</code>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>Supervisors can also log handheld gas-test readings from the Command Center.</div>
+            </section>
+          )}
+
+          <section className="glass-card" style={{ padding: 16 }}>
+            <h2 style={h2}>Sensors ({s.layout.sensors.length})</h2>
+            {s.layout.sensors.map((x: any) => (
+              <div key={x.id} style={{ fontSize: 11, color: 'var(--text-secondary)', padding: '3px 0' }}>
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{x.id}</span> · {x.type} · {x.label} · {x.zone}
+              </div>
+            ))}
           </section>
 
           <section className="glass-card" style={{ padding: 16 }}>

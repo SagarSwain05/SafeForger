@@ -76,10 +76,10 @@ export default function Sidebar() {
       </div>
 
       {!collapsed && site && (
-        <button onClick={() => router.push('/sites')} title="Switch site" style={{ margin: '10px 10px 0', padding: '9px 10px', borderRadius: 10, textAlign: 'left', cursor: 'pointer', background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Site · {site.sectorLabel}</div>
+        <button onClick={() => router.push(user?.isDemo ? '/sites' : '/site')} title={user?.isDemo ? 'Switch site' : 'Facility settings'} style={{ margin: '10px 10px 0', padding: '9px 10px', borderRadius: 10, textAlign: 'left', cursor: 'pointer', background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{site.mode === 'live' ? '● Live facility' : 'Simulated'} · {site.sectorLabel}</div>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{site.name}</div>
-          <div style={{ fontSize: 10, color: 'var(--c-cyan)', marginTop: 2 }}>⇄ Switch site</div>
+          <div style={{ fontSize: 10, color: 'var(--c-cyan)', marginTop: 2 }}>{user?.isDemo ? '⇄ Switch site' : '⚙ Facility settings'}</div>
         </button>
       )}
 

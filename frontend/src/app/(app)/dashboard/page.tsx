@@ -3,6 +3,7 @@ import { useSocket, api } from '@/lib/socket';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import LivePanel from '@/components/LivePanel';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -14,35 +15,42 @@ const STATUS_BG: Record<string, string> = {
   CRITICAL: 'rgba(255,23,68,0.13)', SAFE: 'rgba(0,230,118,0.07)',
 };
 
+const ago = (ts: number | null) => {
+  if (!ts) return 'never';
+  const sec = Math.round((Date.now() - ts) / 1000);
+  return sec < 60 ? `${sec}s ago` : sec < 3600 ? `${Math.round(sec / 60)}m ago` : `${Math.round(sec / 3600)}h ago`;
+};
+
 function SensorCard({ s }: { s: any }) {
-  const pct = s.type === 'O2'
+  const offline = s.online === false || s.value === null || s.value === undefined;
+  const pct = offline ? 0 : s.type === 'O2'
     ? 100 - ((s.value - s.criticalThreshold) / (25 - s.criticalThreshold)) * 100
     : Math.min(100, (s.value / (s.criticalThreshold * 1.2)) * 100);
-  const color = STATUS_COLOR[s.status] ?? '#16a34a';
+  const color = offline ? '#64748b' : STATUS_COLOR[s.status] ?? '#16a34a';
   return (
-    <div className="glass-card" style={{ padding: 14, background: STATUS_BG[s.status] }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-        <div>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{s.zone}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>{s.id}</div>
+    <div className="glass-card" style={{ padding: 14, background: offline ? undefined : STATUS_BG[s.status], opacity: offline ? 0.75 : 1 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 6 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{s.zone} · {s.id}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.label}>{s.label || s.type}</div>
         </div>
-        <span style={{
-          fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6,
-          background: `${color}20`, color, border: `1px solid ${color}40`
-        }}>{s.status}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${color}20`, color, border: `1px solid ${color}40`, whiteSpace: 'nowrap' }}>{offline ? (s.value === null ? 'NO DATA' : 'OFFLINE') : s.status}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 6 }}>
-        <span style={{ fontSize: 22, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color }}>{s.value.toFixed(1)}</span>
+        <span style={{ fontSize: 22, fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color }}>{s.value === null || s.value === undefined ? '—' : Number(s.value).toFixed(1)}</span>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.unit}</span>
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{s.type}</span>
       </div>
       <div className="sensor-bar-track">
-        <div className="sensor-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
+        <div className="sensor-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: color }} />
       </div>
+      {s.source && s.source !== 'simulated' ? (
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>{s.value === null ? 'Waiting for first reading' : `${String(s.source).replace('manual:', 'manual · ')} · ${ago(s.lastUpdated)}`}</div>
+      ) : null}
       <div style={{ height: 36, marginTop: 6 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={s.history ?? []}>
-            <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} dot={false} />
+            <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -95,7 +103,9 @@ export default function DashboardPage() {
   const { site } = useAuth();
   const z1 = site?.layout.zones[0]?.name || 'Z-01';
   const KILL_CHAIN_STEPS = killChainSteps(z1);
-  const { sensors, riskData, emergencyState, shiftInfo, permits, connected, scada, scenario, cvDetections, alerts, alertStats } = useSocket();
+  const { sensors, riskData, emergencyState, shiftInfo, permits, connected, scada, scenario, cvDetections, alerts, alertStats, siteInfo } = useSocket();
+  const live = site?.mode === 'live';
+  const situation = siteInfo?.situation;
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
 
@@ -139,11 +149,11 @@ export default function DashboardPage() {
         <div>
           <h1 style={{ fontSize: 22, fontFamily: 'Orbitron, monospace', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: 1 }}>COMMAND CENTER</h1>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-            {shiftInfo ? `${site?.name ?? ''}${site?.kind === 'preset' ? ' (digital twin · simulated)' : site?.kind === 'sandbox' ? ' (sandbox)' : ''} · Shift ${shiftInfo.current} · Supervisor ${shiftInfo.supervisor} · ${shiftInfo.workersOnSite} workers on site` : 'Connecting to plant…'}
+            {shiftInfo ? `${site?.name ?? ''}${live ? '' : site?.kind === 'preset' ? ' (digital twin · simulated)' : ' (simulated)'} · Shift ${shiftInfo.current} · Supervisor ${shiftInfo.supervisor} · ${shiftInfo.workersOnSite} workers on site` : 'Connecting to plant…'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span className="tag-chip">Scenario: {scenario.replace('_', ' ')}</span>
+          <span className="tag-chip" style={live ? { color: '#16a34a', borderColor: 'rgba(22,163,74,0.4)' } : undefined}>{live ? '● LIVE DATA' : `Simulated · ${scenario.replace('_', ' ')}`}</span>
           <Link href="/vision" style={{ padding: '8px 14px', borderRadius: 8, background: 'rgba(0,176,255,0.12)', border: '1px solid rgba(0,176,255,0.4)', color: 'var(--c-cyan-soft)', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>🎯 Open Vision AI</Link>
         </div>
       </div>
@@ -171,8 +181,18 @@ export default function DashboardPage() {
 
       <div className="dash-grid">
         <div>
+          {live && <LivePanel />}
+          {!live && situation && (
+            <div className="glass-card" style={{ padding: 14, marginBottom: 16, borderColor: 'rgba(234,88,12,0.35)', background: 'rgba(234,88,12,0.05)' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#ea580c', letterSpacing: 1 }}>SITE BRIEFING · ACTIVE SITUATION</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>{situation.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                Watch <strong>{situation.sensorId}</strong> ({situation.sensorLabel}) in {situation.zoneName} ({situation.zone}). Point of action: <strong>{situation.action}</strong>.
+              </div>
+            </div>
+          )}
           {/* Kill-chain demo */}
-          <div className="glass-card" style={{ padding: 16, marginBottom: 20, borderColor: 'rgba(255,179,0,0.25)' }}>
+          {!live && <div className="glass-card" style={{ padding: 16, marginBottom: 20, borderColor: 'rgba(255,179,0,0.25)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
               <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-amber-soft)', textTransform: 'uppercase', letterSpacing: 1 }}>Kill-chain demo — compound risk in two steps</h2>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Watch the risk score, heatmap (Z-01) and alert toasts</span>
@@ -195,7 +215,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
-          </div>
+          </div>}
 
           {compound.length > 0 && (
             <div style={{ marginBottom: 20 }}>
@@ -224,6 +244,7 @@ export default function DashboardPage() {
 
           <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>IoT sensor telemetry</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+            {sensors.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No sensors configured for this site.</div>}
             {sensors.map(s => <SensorCard key={s.id} s={s} />)}
           </div>
         </div>
@@ -260,10 +281,11 @@ export default function DashboardPage() {
           </div>
 
           <div className="glass-card" style={{ padding: 16 }}>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>SCADA equipment (Modbus / OPC-UA, simulated)</h2>
+            <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>SCADA equipment {live ? (scada?.connected ? '(live gateway)' : '') : '(simulated)'}</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
               {(scada?.equipment ?? []).map((e: any) => <ScadaCard key={e.id} label={e.label} value={e.value} unit={e.unit} state={e.state} normal={e.normalState} />)}
               {!scada && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Waiting for SCADA…</div>}
+              {scada && !(scada.equipment ?? []).length && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--text-muted)' }}>No SCADA gateway connected. Push equipment states to the SCADA endpoint shown on Site &amp; Cameras.</div>}
             </div>
           </div>
 

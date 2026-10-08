@@ -1,5 +1,6 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { SocketProvider } from '@/lib/socket';
@@ -10,16 +11,27 @@ import AppTopBar from '@/components/AppTopBar';
 
 /** Authenticated shell: requires a signed-in user and (outside /sites) a selected site. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { ready, user, siteId, site } = useAuth();
+  const { ready, user, siteId, site, selectSite } = useAuth();
+  const [attaching, setAttaching] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const onSitePicker = pathname === '/sites';
 
   useEffect(() => {
     if (!ready) return;
-    if (!user) router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-    else if (!siteId && !onSitePicker) router.replace('/sites');
-  }, [ready, user, siteId, onSitePicker, pathname, router]);
+    if (!user) { router.replace(`/login?next=${encodeURIComponent(pathname)}`); return; }
+    if (siteId) return;
+    // Real accounts are attached to exactly one facility — select it automatically
+    if (!user.isDemo && !attaching) {
+      setAttaching(true);
+      api<any[]>('/sites', { timeoutMs: 75000 })
+        .then(async list => { if (list[0]) await selectSite(list[0].id); else if (!onSitePicker) router.replace('/sites'); })
+        .catch(() => { if (!onSitePicker) router.replace('/sites'); })
+        .finally(() => setAttaching(false));
+      return;
+    }
+    if (user.isDemo && !onSitePicker) router.replace('/sites');
+  }, [ready, user, siteId, onSitePicker, pathname, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready || !user || (!siteId && !onSitePicker)) {
     return (

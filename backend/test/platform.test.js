@@ -292,3 +292,78 @@ test('a second critical incident extends the active emergency and suspends its p
   await api('/demo/kill-chain', { method: 'POST', body: { step: 'reset' } });
   assert.equal((await api('/vision/state')).body.camerasOnline, 0, 'demo reset clears camera state');
 });
+
+test('every simulated plant has its own layout, sensors, situation and numbers', async () => {
+  const ids = ['rinl-vizag-steel', 'ntpc-simhadri', 'hpcl-visakh', 'secl-gevra', 'demo-pharma'];
+  const sites = await Promise.all(ids.map(id => g(`/sites/${id}`).then(r => r.body)));
+  const geoms = new Set(sites.map(s => JSON.stringify(s.layout.zones.map(z => [z.x, z.y, z.w, z.h]))));
+  assert.equal(geoms.size, ids.length, 'map geometry differs per site');
+  const plans = new Set(sites.map(s => s.layout.sensors.map(x => `${x.zone}:${x.type}`).join('|')));
+  assert.ok(plans.size >= 4, 'sector sensor plans differ');
+  const equipment = new Set(sites.map(s => s.layout.equipment.map(e => e.label).join('|')));
+  assert.ok(equipment.size >= 4, 'sector equipment differs');
+  const readings = await Promise.all(ids.map(id => call(`${root}/sites/${id}/sensors`).then(r => r.body.map(x => x.value).join(','))));
+  assert.equal(new Set(readings).size, ids.length, 'live numbers differ');
+  const situations = await Promise.all(ids.map(id => platform.ctx.sites.runtimes.get(id)?.profile.sim.situation?.title));
+  assert.ok(situations.filter(Boolean).length >= 4, 'each plant has an active situation');
+  const rosters = new Set(ids.map(id => platform.ctx.sites.runtimes.get(id).profile.roster.map(w => w.name).join(',')));
+  assert.equal(rosters.size, ids.length, 'workforce differs');
+});
+
+test('real accounts: no demo plants, exactly one live facility, real inputs only', async () => {
+  const reg = await g('/auth/register', { method: 'POST', body: { name: 'Plant Head', email: 'head@realplant.com', password: 'Factory2026', role: 'Plant Manager' } }, null);
+  const t = reg.body.token;
+  assert.deepEqual((await g('/sites', {}, t)).body, [], 'starts with no site');
+  assert.equal((await call(`${root}/sites/demo-refinery/risk`, {}, t)).status, 404, 'demo plants are hidden from real accounts');
+  const templates = (await g('/sites/templates', {}, t)).body;
+  assert.ok(templates.some(x => x.id === 'jsw-vijayanagar'));
+
+  const created = await g('/sites', { method: 'POST', body: { templateId: 'jsw-vijayanagar', contacts: [{ name: 'Lata Shetty', role: 'Safety Officer' }], members: ['teammate@realplant.com'] } }, t);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.equal(created.body.mode, 'live');
+  assert.equal(created.body.sector, 'steel');
+  const second = await g('/sites', { method: 'POST', body: { name: 'Another', sector: 'cement' } }, t);
+  assert.equal(second.status, 409, 'one facility per account');
+
+  const id = created.body.id;
+  const site = (await g(`/sites/${id}`, {}, t)).body;
+  const S = (p, o = {}, a = t) => call(`${root}/sites/${id}${p}`, o, a);
+  const sensors = (await S('/sensors')).body;
+  assert.ok(sensors.length > 0 && sensors.every(x => x.value === null && x.status === 'OFFLINE'), 'no invented sensor values');
+  assert.equal((await S('/permits')).body.length, 0, 'no seeded permits');
+  assert.equal((await S('/workers')).body.length, 0, 'no simulated workers');
+  assert.equal((await S('/scada/state')).body.connected, false);
+  assert.equal((await S('/demo/kill-chain', { method: 'POST', body: { step: 'drift' } })).status, 409);
+  const risk0 = (await S('/risk')).body;
+  assert.equal(risk0.alerts.length, 0);
+
+  // Gateway telemetry with the ingest key, then a manual handheld reading by the user
+  const gas = sensors.find(x => x.type === 'CH4');
+  const key = { headers: { 'X-API-Key': site.ingestKey } };
+  const tel = await call(`${root}/sites/${id}/telemetry`, { method: 'POST', body: { readings: [{ sensorId: gas.id, value: 12.5 }, { sensorId: 'NEW-CO-1', type: 'CO', zone: 'Z-04', value: 8 }] }, ...key }, null);
+  assert.equal(tel.status, 200, JSON.stringify(tel.body));
+  assert.equal(tel.body.accepted, 2);
+  const after = (await S('/sensors')).body;
+  const g1 = after.find(x => x.id === gas.id);
+  assert.equal(g1.status, 'WARNING');
+  assert.equal(g1.online, true);
+  assert.ok(after.some(x => x.id === 'NEW-CO-1'), 'gateway can register new detectors');
+  assert.equal((await S('/telemetry', { method: 'POST', body: { sensorId: gas.id, value: 3.1 } })).status, 200, 'manual reading by a signed-in user');
+  assert.ok((await S('/alerts?type=SENSOR')).body.length >= 1, 'a real warning raised a real alert');
+
+  // SCADA gateway + badge presence
+  assert.equal((await call(`${root}/sites/${id}/scada`, { method: 'POST', body: { equipment: [{ id: 'BF-1', label: 'Blast furnace 1', zone: 'Z-03', state: 'RUNNING', value: 1180, unit: '°C' }] }, ...key }, null)).status, 200);
+  assert.equal((await S('/scada/state')).body.connected, true);
+  assert.equal((await call(`${root}/sites/${id}/presence`, { method: 'POST', body: { workers: [{ id: 'B-77', name: 'Kiran', zone: 'Z-03' }] }, ...key }, null)).status, 200);
+  assert.equal((await S('/workers')).body.length, 1);
+  const conn = (await S('/connections')).body;
+  assert.equal(conn.mode, 'live');
+  assert.ok(conn.sensors.online >= 1 && conn.scada.connected && conn.presence.people === 1);
+
+  // An invited teammate is attached to the same single facility
+  const mate = (await g('/auth/register', { method: 'POST', body: { name: 'Mate', email: 'teammate@realplant.com', password: 'Factory2026' } }, null)).body.token;
+  const mateSites = (await g('/sites', {}, mate)).body;
+  assert.equal(mateSites.length, 1);
+  assert.equal(mateSites[0].id, id);
+  assert.equal((await g('/sites', { method: 'POST', body: { name: 'X', sector: 'cement' } }, mate)).status, 409);
+});

@@ -15,12 +15,14 @@ const SOURCE_TYPES = [
 type Zone = { name: string; hazardClass: string; requiredPPE: string[]; type?: string };
 type Camera = { id?: string; label: string; zone: string; sourceType: string; url: string };
 type Contact = { name: string; role: string; email: string; phone: string };
+type Sensor = { id?: string; type: string; zone: string; label: string };
+const SENSOR_TYPES = ['CH4', 'H2S', 'CO', 'O2', 'TEMP', 'PRESSURE'];
 export interface SiteForm {
   name: string; company: string; sector: string; city: string; state: string; description: string;
-  zones: Zone[]; cameras: Camera[]; contacts: Contact[]; members: string;
+  zones: Zone[]; cameras: Camera[]; contacts: Contact[]; members: string; sensors: Sensor[];
 }
 
-export const emptyForm = (): SiteForm => ({ name: '', company: '', sector: '', city: '', state: '', description: '', zones: [], cameras: [], contacts: [], members: '' });
+export const emptyForm = (): SiteForm => ({ name: '', company: '', sector: '', city: '', state: '', description: '', zones: [], cameras: [], contacts: [], members: '', sensors: [] });
 
 export function formFromSite(site: any): SiteForm {
   return {
@@ -29,6 +31,7 @@ export function formFromSite(site: any): SiteForm {
     zones: site.layout.zones.map((z: any) => ({ name: z.name, hazardClass: z.hazardClass, requiredPPE: z.requiredPPE || [], type: z.type })),
     cameras: site.layout.cameras.map((c: any) => ({ id: c.id, label: c.label, zone: c.zone, sourceType: c.sourceType || 'browser', url: c.url || '' })),
     contacts: site.contacts || [], members: (site.members || []).join(', '),
+    sensors: (site.layout.sensors || []).map((x: any) => ({ id: x.id, type: x.type, zone: x.zone, label: x.label || '' })),
   };
 }
 
@@ -52,16 +55,18 @@ export default function SiteEditor({ initial, submitLabel, onSubmit, onCancel }:
       ...prev, sector: id,
       zones: s.zones.map((z: any) => ({ name: z.name, hazardClass: z.hazardClass, requiredPPE: z.requiredPPE, type: z.type })),
       cameras: prev.cameras.length && prev.sector ? prev.cameras : s.cameras.map((label: string, i: number) => ({ label, zone: ['Z-01', 'Z-03', 'Z-07', 'Z-11', 'Z-13', 'Z-05'][i], sourceType: 'browser', url: '' })),
+      sensors: prev.sensors.length && prev.sector ? prev.sensors : (s.sensors || []).map((x: any) => ({ ...x })),
     }));
   };
 
   const zoneIds = f.zones.map((_, i) => `Z-${String(i + 1).padStart(2, '0')}`);
   const setZone = (i: number, patch: Partial<Zone>) => setF(p => ({ ...p, zones: p.zones.map((z, j) => j === i ? { ...z, ...patch } : z) }));
   const setCam = (i: number, patch: Partial<Camera>) => setF(p => ({ ...p, cameras: p.cameras.map((c, j) => j === i ? { ...c, ...patch } : c) }));
+  const setSensor = (i: number, patch: Partial<Sensor>) => setF(p => ({ ...p, sensors: p.sensors.map((c, j) => j === i ? { ...c, ...patch } : c) }));
   const setContact = (i: number, patch: Partial<Contact>) => setF(p => ({ ...p, contacts: p.contacts.map((c, j) => j === i ? { ...c, ...patch } : c) }));
 
   const canNext = step === 0 ? !!(f.name.trim() && f.sector) : true;
-  const steps = ['Details', 'Zones & PPE', 'Cameras', 'Contacts'];
+  const steps = ['Details', 'Zones & PPE', 'Cameras', 'Sensors', 'Contacts'];
 
   const submit = async () => {
     setBusy(true); setErr('');
@@ -70,6 +75,7 @@ export default function SiteEditor({ initial, submitLabel, onSubmit, onCancel }:
         name: f.name, company: f.company, sector: f.sector, city: f.city, state: f.state, description: f.description,
         zones: f.zones.map(z => ({ name: z.name, hazardClass: z.hazardClass, requiredPPE: z.requiredPPE })),
         cameras: f.cameras.filter(c => c.label.trim()),
+        sensors: f.sensors.filter(x => x.type && x.zone),
         contacts: f.contacts.filter(c => c.name.trim()),
         members: f.members.split(',').map(s => s.trim()).filter(Boolean),
       });
@@ -144,6 +150,22 @@ export default function SiteEditor({ initial, submitLabel, onSubmit, onCancel }:
 
       {step === 3 && (
         <div>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>Fixed detectors at your facility. Each gets an ID your gateway (or a supervisor logging a handheld reading) reports against. Thresholds follow the type (CH₄ 10/20 %LEL, H₂S 5/10 ppm, CO 25/50 ppm, O₂ 19.5/16 %). Unknown IDs sent by a gateway with a type and zone are added automatically.</p>
+          {f.sensors.map((x, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(100px,0.8fr) 110px minmax(130px,1fr) minmax(150px,1.4fr) 32px', gap: 8, marginBottom: 8, alignItems: 'center' }} className="zone-row">
+              <input aria-label="Sensor ID" placeholder="auto ID" value={x.id || ''} onChange={e => setSensor(i, { id: e.target.value })} style={inp} />
+              <select aria-label="Sensor type" value={x.type} onChange={e => setSensor(i, { type: e.target.value })} style={inp}>{SENSOR_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+              <select aria-label="Sensor zone" value={x.zone} onChange={e => setSensor(i, { zone: e.target.value })} style={inp}>{zoneIds.map((z, j) => <option key={z} value={z}>{z} {f.zones[j]?.name}</option>)}</select>
+              <input aria-label="Sensor label" placeholder="Label (e.g. Tank vent H₂S)" value={x.label} onChange={e => setSensor(i, { label: e.target.value })} style={inp} />
+              <button type="button" aria-label="Remove sensor" onClick={() => setF(p => ({ ...p, sensors: p.sensors.filter((_, j) => j !== i) }))} style={{ ...inp, cursor: 'pointer', padding: 6 }}>✕</button>
+            </div>
+          ))}
+          <button type="button" className="btn-ghost" onClick={() => setF(p => ({ ...p, sensors: [...p.sensors, { type: 'CH4', zone: 'Z-01', label: '' }] }))}>＋ Add sensor</button>
+        </div>
+      )}
+
+      {step === 4 && (
+        <div>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>Alerts are routed by role — fire alerts to Fire &amp; Safety and the Safety Officer, PPE violations to the Shift Supervisor, and so on. Contacts added here replace the demo roster for those roles.</p>
           {f.contacts.map((c, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px,1fr) minmax(140px,1fr) minmax(160px,1.3fr) minmax(110px,0.8fr) 32px', gap: 8, marginBottom: 8 }} className="zone-row">
@@ -166,7 +188,7 @@ export default function SiteEditor({ initial, submitLabel, onSubmit, onCancel }:
         {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>}
         {step > 0 && <button type="button" className="btn-ghost" onClick={() => setStep(step - 1)}>← Back</button>}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {step < 3 && <button type="button" className="btn-ghost" disabled={!canNext} onClick={() => setStep(step + 1)}>Next →</button>}
+          {step < 4 && <button type="button" className="btn-ghost" disabled={!canNext} onClick={() => setStep(step + 1)}>Next →</button>}
           <button type="button" className="btn-primary" disabled={busy || !f.name.trim() || !f.sector} onClick={submit}>{busy ? 'Saving…' : submitLabel}</button>
         </div>
       </div>

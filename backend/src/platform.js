@@ -18,6 +18,7 @@ const { AuthService, authRouter, requireAuth } = require('./auth');
 const { SiteRegistry, CONTACT_ROLES, DEFAULT_SITE_ID } = require('./sites/registry');
 const { SECTORS, SECTOR_LIST } = require('./sites/templates');
 const RAGAgent = require('./agents/RAGAgent');
+const { SENSOR_PLANS, SENSOR_TYPES } = require('./sites/profile');
 
 const VERSION = require('../package.json').version;
 
@@ -91,11 +92,17 @@ function createPlatform() {
   });
 
   app.get('/api/sectors', (req, res) => res.json({
-    sectors: SECTOR_LIST.map(s => ({ ...s, zones: SECTORS[s.id].zones.map(([name, hazardClass, type, requiredPPE]) => ({ name, hazardClass, type, requiredPPE })), cameras: SECTORS[s.id].cameras })),
+    sectors: SECTOR_LIST.map(s => ({
+      ...s, zones: SECTORS[s.id].zones.map(([name, hazardClass, type, requiredPPE]) => ({ name, hazardClass, type, requiredPPE })), cameras: SECTORS[s.id].cameras,
+      sensors: (SENSOR_PLANS[s.id] || []).map(([zone, type, label]) => ({ zone, type, label })),
+    })),
+    sensorTypes: Object.fromEntries(Object.entries(SENSOR_TYPES).map(([k, v]) => [k, { unit: v.unit, warningThreshold: v.warningThreshold, criticalThreshold: v.criticalThreshold }])),
     contactRoles: CONTACT_ROLES, defaultSiteId: DEFAULT_SITE_ID,
   }));
 
   app.get('/api/sites', authed, wrap(async (req, res) => res.json(await ctx.sites.listFor(req.user))));
+  // Real-facility templates a real account can attach its (single) live site to
+  app.get('/api/sites/templates', authed, (req, res) => res.json(ctx.sites.templates()));
   app.post('/api/sites', authed, limiters.writeLimiter, wrap(async (req, res) => {
     const site = await ctx.sites.create(req.user, req.body || {});
     res.status(201).json(ctx.sites.summary(site, req.user));
@@ -122,7 +129,9 @@ function createPlatform() {
     const site = await ctx.sites.get(req.params.siteId);
     if (!site) return res.status(404).json({ error: 'Site not found' });
     const key = req.headers['x-api-key'];
-    const isIngest = req.method === 'POST' && req.path === '/vision/detections';
+    // Devices holding the site ingest key may push real inputs and read the site map
+    const isIngest = (req.method === 'POST' && ['/vision/detections', '/telemetry', '/scada', '/presence'].includes(req.path))
+      || (req.method === 'GET' && ['/plant-layout', '/spatial/zones'].includes(req.path));
     if (key && isIngest) {
       if (key !== site.ingestKey) return res.status(401).json({ error: 'Invalid site ingest key' });
     } else {
@@ -153,7 +162,7 @@ function createPlatform() {
       const { token, siteId } = socket.handshake.auth || {};
       const user = ctx.auth ? await ctx.auth.userFromToken(token) : null;
       if (!user) return next(new Error('unauthorized'));
-      const site = await ctx.sites.get(siteId || DEFAULT_SITE_ID);
+      const site = siteId ? await ctx.sites.get(siteId) : user.isDemo ? await ctx.sites.get(DEFAULT_SITE_ID) : await ctx.sites.attachedSite(user);
       if (!site || !ctx.sites.canAccess(user, site)) return next(new Error('site-not-found'));
       socket.data.user = user;
       socket.data.site = site;

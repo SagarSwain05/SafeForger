@@ -176,7 +176,13 @@ class CompoundRiskOrchestrator {
       let score = HAZARD_BASE[z.hazardClass] || 0;
       for (const s of sensors.filter(x => x.zone === z.id)) {
         if (s.status === 'CRITICAL') { score += 35; drivers.push(`${s.type} critical`); }
-        else if (s.status === 'WARNING') { score += 15; drivers.push(`${s.type} warning`); }
+        else if (s.status === 'WARNING') {
+          // Scale by how far into the warning band (warning → critical) the reading is
+          const span = s.criticalThreshold - s.warningThreshold || 1;
+          const depth = Math.max(0, Math.min(1, (s.value - s.warningThreshold) / span));
+          score += 15 + Math.round(25 * depth);
+          drivers.push(`${s.type} warning`);
+        }
         else if (fc[s.id]?.trend === 'WORSENING' && s.type !== 'O2' && s.value > 0.4 * s.warningThreshold) { score += 10; drivers.push(`${s.type} rising`); }
       }
       for (const p of permitsByZone[z.id] || []) { score += PERMIT_WEIGHT[p.type] || 4; drivers.push(`${p.type} permit`); }

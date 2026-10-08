@@ -60,10 +60,19 @@ class VisionHub {
     }
 
     const req = this.requiredPPE(zoneId);
+    // Map position: edge-supplied homography coords, else project the feet point into the camera's zone
+    const zr = this.zones[zoneId];
+    const fw = Number(raw.frame?.w), fh = Number(raw.frame?.h);
+    const project = (bbox) => {
+      if (!Array.isArray(bbox) || !(fw > 0 && fh > 0)) return null;
+      const fx = Math.min(1, Math.max(0, ((bbox[0] + bbox[2]) / 2) / fw)), fy = Math.min(1, Math.max(0, bbox[3] / fh));
+      return [+(zr.x + 6 + fx * (zr.w - 12)).toFixed(1), +(zr.y + 6 + fy * (zr.h - 12)).toFixed(1)];
+    };
     const workers = Array.isArray(raw.workers) ? raw.workers.slice(0, 100).map(w => {
       const ppe = w.ppe && typeof w.ppe === 'object' ? w.ppe : {};
       const missing = req.items.filter(i => ppe[i] === 'missing');
-      return { ...w, ppe, missing, compliant: missing.length === 0 };
+      const plant_coords = Array.isArray(w.plant_coords) ? w.plant_coords : project(w.bbox);
+      return { ...w, ppe, missing, compliant: missing.length === 0, plant_coords };
     }) : [];
     const hasWorkerDetail = workers.length > 0;
     const violators = workers.filter(w => !w.compliant);
@@ -96,7 +105,7 @@ class VisionHub {
       zones_occupied: Array.isArray(raw.zones_occupied) ? raw.zones_occupied : [],
       mapped_positions: workers.filter(w => w.plant_coords).map(w => ({
         person_id: w.id, plant_coords: w.plant_coords, zone_id: w.zone_id || zoneId, compliant: w.compliant, missing: w.missing,
-      })).concat(Array.isArray(raw.mapped_positions) ? raw.mapped_positions : []),
+      })),
       events: [],
     };
     d.ppe_compliance_pct = d.worker_count ? Math.round((d.compliant_workers / d.worker_count) * 100) : null;

@@ -124,7 +124,23 @@ class FrameSource:
 
 def run(args):
     config = load_config(args.config)
-    layout = load_layout(config.get("layout_path"))
+    layout = None
+    backend_url_early = args.backend_url or os.environ.get("SAFEFORGE_BACKEND_URL")
+    key_early = args.api_key or os.environ.get("SAFEFORGE_API_KEY")
+    site_early = args.site or os.environ.get("SAFEFORGE_SITE")
+    if backend_url_early and key_early and site_early:
+        # Every site has its own map: fetch it so zones / cameras / homography match the dashboard
+        try:
+            import requests
+            r = requests.get(f"{backend_url_early.rstrip('/')}/api/sites/{site_early}/plant-layout", headers={"X-API-Key": key_early}, timeout=60)
+            if r.ok:
+                layout = r.json()
+                logger.info("Loaded site layout for %s (%d zones, %d cameras)", site_early, len(layout["zones"]), len(layout.get("cameras", [])))
+            else:
+                logger.warning("Could not fetch site layout (%s) — using the bundled default", r.status_code)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not fetch site layout (%s) — using the bundled default", e)
+    layout = layout or load_layout(config.get("layout_path"))
     cam_meta = next((c for c in layout.get("cameras", []) if c["id"] == args.camera), {})
     zone_id = args.zone or cam_meta.get("zone") or config.get("cameras", {}).get(args.camera, {}).get("zone", "Z-01")
     zone = next((z for z in layout["zones"] if z["id"] == zone_id), {})

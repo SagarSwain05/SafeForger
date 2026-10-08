@@ -24,8 +24,10 @@ const SIMOPS_CONFLICTS = [
  * plus an active confined-space entry and electrical isolation.
  */
 class PermitStore {
-  constructor(layout) {
+  /** opts.seed=false for live sites (real permits only); opts.extra = extra simulated permits */
+  constructor(layout, opts = {}) {
     this.layout = layout;
+    this.opts = { seed: opts.seed !== false, extra: opts.extra || [], roster: opts.roster || [] };
     this.zonesById = Object.fromEntries(layout.zones.map(z => [z.id, z]));
     this.adjacency = buildAdjacency(layout.zones);
     this.reset();
@@ -33,14 +35,16 @@ class PermitStore {
 
   isNear(a, b) { return a === b || !!this.adjacency[a]?.has(b); }
 
-  _seed() {
+  _seed(people = null) {
     const now = Date.now();
+    const by = (role, fallback) => people?.find(w => w.role === role)?.name || fallback;
+    const anyone = (i, fallback) => people?.[i % people.length]?.name || fallback;
     const y = new Date().getFullYear();
     const zn = (id) => this.zonesById[id].name;
     return [
       {
         id: `PTW-${y}-001`, type: 'HOT_WORK', title: this.layout.hotWorkTitle || 'Hot work in Z-01',
-        zone: 'Z-01', zoneName: zn('Z-01'), requestedBy: 'Suresh Reddy', approvedBy: null,
+        zone: 'Z-01', zoneName: zn('Z-01'), requestedBy: by('Maintenance Lead', 'Suresh Reddy'), approvedBy: null,
         startTime: new Date(now).toISOString(), endTime: new Date(now + 4 * 3600000).toISOString(),
         status: 'PENDING', workers: ['W-003', 'W-006'], gasTestRequired: true, gasTestResult: 'PENDING',
         aiValidated: false, aiWarnings: [], riskScore: 0,
@@ -48,7 +52,7 @@ class PermitStore {
       },
       {
         id: `PTW-${y}-002`, type: 'CONFINED_SPACE', title: `Inspection — ${zn('Z-11')}`,
-        zone: 'Z-11', zoneName: zn('Z-11'), requestedBy: 'Rajesh Iyer', approvedBy: 'Deepika Patel',
+        zone: 'Z-11', zoneName: zn('Z-11'), requestedBy: by('Instrument Tech', 'Rajesh Iyer'), approvedBy: by('Shift Supervisor', 'Deepika Patel'),
         startTime: new Date(now - 3600000).toISOString(), endTime: new Date(now + 2 * 3600000).toISOString(),
         status: 'ACTIVE', workers: ['W-010', 'W-009'], gasTestRequired: true, gasTestResult: 'PASSED',
         aiValidated: true, aiWarnings: ['Continuous O2 monitoring mandatory during entry'], riskScore: 30,
@@ -56,7 +60,7 @@ class PermitStore {
       },
       {
         id: `PTW-${y}-003`, type: 'ELECTRICAL_ISOLATION', title: `Electrical isolation — ${zn('Z-07')}`,
-        zone: 'Z-07', zoneName: zn('Z-07'), requestedBy: 'Venkat Rao', approvedBy: 'Mohan Singh',
+        zone: 'Z-07', zoneName: zn('Z-07'), requestedBy: anyone(7, 'Venkat Rao'), approvedBy: by('Fire & Safety', 'Mohan Singh'),
         startTime: new Date(now - 30 * 60000).toISOString(), endTime: new Date(now + 5 * 3600000).toISOString(),
         status: 'ACTIVE', workers: ['W-006', 'W-011'], gasTestRequired: false, gasTestResult: 'N/A',
         aiValidated: true, aiWarnings: [], riskScore: 20,
@@ -65,7 +69,20 @@ class PermitStore {
     ];
   }
 
-  reset() { this.permits = this._seed(); this.seq = 3; }
+  reset() {
+    if (!this.opts.seed) { this.permits = []; this.seq = 0; return; }
+    const y = new Date().getFullYear();
+    const people = this.opts.roster.length ? this.opts.roster : null;
+    const extra = this.opts.extra.map((e, i) => ({
+      id: `PTW-${y}-${String(4 + i).padStart(3, '0')}`, type: e.type, title: `${PERMIT_TYPES[e.type].label} — ${this.zonesById[e.zone].name}`,
+      zone: e.zone, zoneName: this.zonesById[e.zone].name, requestedBy: e.requestedBy, approvedBy: e.approvedBy,
+      startTime: new Date(Date.now() - (30 + i * 25) * 60000).toISOString(), endTime: new Date(Date.now() + (3 + i) * 3600000).toISOString(),
+      status: 'ACTIVE', workers: [], gasTestRequired: false, gasTestResult: 'N/A', aiValidated: true, aiWarnings: [], riskScore: 15,
+      description: 'Routine maintenance work.',
+    }));
+    this.permits = [...this._seed(people), ...extra];
+    this.seq = 3 + extra.length;
+  }
 
   _decorate(p) {
     return {

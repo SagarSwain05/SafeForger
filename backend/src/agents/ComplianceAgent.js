@@ -49,10 +49,12 @@ class ComplianceAgent {
         : item('COMP-005', 'Factories Act 1948, Section 38 · OISD-STD-116', 'Fire/smoke detection & response', 'COMPLIANT', `Automated CCTV fire/smoke detection active on ${v.camerasOnline || 0} camera(s); no open fire alerts.`));
 
     // Gas detection coverage
-    const stale = sensors.filter(s => Date.now() - (s.lastUpdated || 0) > 15000);
-    const inAlarm = sensors.filter(s => s.status !== 'NORMAL');
-    items.push(stale.length
-      ? item('COMP-006', 'Site gas-detection policy', 'Fixed gas detector coverage', 'NON_COMPLIANT', `${stale.length} detector(s) not reporting.`)
+    const stale = sensors.filter(s => s.online === false || Date.now() - (s.lastUpdated || 0) > 150000);
+    const inAlarm = sensors.filter(s => s.online !== false && !['NORMAL', 'OFFLINE'].includes(s.status));
+    items.push(!sensors.length
+      ? item('COMP-006', 'Site gas-detection policy', 'Fixed gas detector coverage', 'NO_DATA', 'No gas detectors are connected yet. Connect a telemetry gateway or log handheld readings.', null)
+      : stale.length
+      ? item('COMP-006', 'Site gas-detection policy', 'Fixed gas detector coverage', 'NON_COMPLIANT', `${stale.length} of ${sensors.length} detector(s) not reporting.`)
       : item('COMP-006', 'Site gas-detection policy', 'Fixed gas detector coverage', inAlarm.length ? 'OBSERVATION' : 'COMPLIANT', `${sensors.length} detectors reporting; ${inAlarm.length} in alarm.`));
 
     items.push(rules.has('CR-008')
