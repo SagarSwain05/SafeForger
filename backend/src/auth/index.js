@@ -32,7 +32,8 @@ class AuthService {
       passwordHash: hashPassword(config.auth.demoPassword), verified: true, isDemo: true,
     };
     if (existing) await this.store.updateOne('users', { email: e }, doc);
-    else await this.store.insertOne('users', { id: `usr_${crypto.randomBytes(6).toString('hex')}`, createdAt: new Date().toISOString(), ...doc });
+    // Stable id: demo sessions stay valid across restarts even when storage is ephemeral
+    else await this.store.insertOne('users', { id: 'usr_demo', createdAt: new Date().toISOString(), ...doc });
   }
 
   token(user) { return signToken({ sub: user.id, email: user.email, role: user.role }, config.auth.jwtSecret); }

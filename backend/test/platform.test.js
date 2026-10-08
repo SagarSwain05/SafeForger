@@ -58,6 +58,17 @@ test('demo account is seeded and wrong passwords are rejected', async () => {
   assert.equal((await g('/auth/login', { method: 'POST', body: { email: 'safeforgerdemo@gmail.com', password: 'nope12345' } }, null)).status, 401);
 });
 
+test('demo sessions survive a restart with fresh storage', async () => {
+  const { createPlatform: make } = require('../src/platform');
+  const fresh = make();
+  process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'safeforge-test2-'));
+  delete require.cache[require.resolve('../src/config')];
+  const port = await fresh.start(0);
+  const res = await call(`http://127.0.0.1:${port}/api/auth/me`);
+  await fresh.stop();
+  assert.equal(res.status, 200, 'token from the first instance is accepted by a fresh one');
+});
+
 test('site API requires authentication', async () => {
   assert.equal((await call(`${root}/sites/${SITE}/risk`, {}, null)).status, 401);
   assert.equal((await g('/sites', {}, null)).status, 401);
