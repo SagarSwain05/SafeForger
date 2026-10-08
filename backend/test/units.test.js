@@ -45,13 +45,14 @@ test('noise near baseline never raises a CRITICAL compound risk (soak)', () => {
   const S = require('../src/simulation/SensorSimulator');
   const { forecastAll } = require('../src/services/forecast');
   const Risk = require('../src/agents/CompoundRiskOrchestrator');
-  const { getActivePermitsByZone } = require('../src/data/permitStore');
+  const { PermitStore } = require('../src/data/permitStore');
   const kg = new KnowledgeGraph(layout);
-  const risk = new Risk({ layout, kg });
+  const store = new PermitStore(layout);
+  const risk = new Risk({ layout, kg, permits: store });
   const sim = new S();
   let t = Date.now();
   // Hot work active in Z-01 to make the gas rules as sensitive as possible
-  const permits = { ...getActivePermitsByZone(), 'Z-01': [{ id: 'HW', type: 'HOT_WORK', zone: 'Z-01' }] };
+  const permits = { ...store.getActivePermitsByZone(), 'Z-01': [{ id: 'HW', type: 'HOT_WORK', zone: 'Z-01' }] };
   let criticals = 0;
   for (let i = 0; i < 3000; i++) {
     t += 2000; sim._step(t); sim.readings = sim._snapshot();
@@ -59,4 +60,15 @@ test('noise near baseline never raises a CRITICAL compound risk (soak)', () => {
     if (r.alerts.some(a => a.severity === 'CRITICAL')) criticals++;
   }
   assert.equal(criticals, 0, `${criticals} spurious CRITICAL evaluations in ~100 simulated minutes`);
+});
+
+test('every sector template builds a valid 15-zone layout', () => {
+  const { SECTORS, buildLayout } = require('../src/sites/templates');
+  for (const id of Object.keys(SECTORS)) {
+    const l = buildLayout(id, 'X');
+    assert.equal(l.zones.length, 15, id);
+    assert.equal(l.cameras.length, 6, id);
+    assert.equal(l.zones[14].hazardClass, 'SAFE', `${id} Z-15 must be the assembly area`);
+    assert.ok(['CRITICAL'].includes(l.zones[10].hazardClass) && /confined/i.test(l.zones[10].type), `${id} Z-11 confined space`);
+  }
 });

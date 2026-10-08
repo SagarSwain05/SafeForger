@@ -14,7 +14,8 @@ logger = logging.getLogger("mqtt_client")
 
 
 class SafeForgerMqttClient:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, site: str = "demo-refinery"):
+        self.site = site
         cfg = config.get("mqtt", {})
         self.host = cfg.get("broker_host", "localhost")
         self.port = cfg.get("broker_port", 1883)
@@ -56,7 +57,7 @@ class SafeForgerMqttClient:
 
     def publish_vision(self, payload: dict):
         # Evidence images are large; MQTT consumers get the event list without them
-        slim = {k: v for k, v in payload.items() if k != "evidence"}
+        slim = {**{k: v for k, v in payload.items() if k != "evidence"}, "site_id": self.site}
         self.publish(f"plant/{payload['zone']}/vision", slim)
         self.publish(f"plant/cv/{payload['camera_id']}", slim)
 

@@ -11,7 +11,7 @@
 
 // Load ONNX Runtime synchronously at start-up (importScripts inside async handlers is
 // rejected by Chromium). The version must match ORT_VERSION in src/lib/vision.ts.
-const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+const ORT_BASE = '/ort/';   // self-hosted (same origin) so threaded WASM can spawn its workers
 let ortLoadError = null;
 try { importScripts(ORT_BASE + 'ort.webgpu.min.js'); } catch (e) { ortLoadError = e; }
 
@@ -59,7 +59,9 @@ async function init({ wasmPaths, modelsBase }) {
   if (ortLoadError || !self.ort) throw new Error(`Could not load ONNX Runtime Web from the CDN (${ortLoadError?.message || 'unknown error'}). Check the network connection.`);
   rt = self.ort;
   rt.env.wasm.wasmPaths = wasmPaths || ORT_BASE;
-  rt.env.wasm.numThreads = 1;           // no cross-origin isolation on a public site
+  // Multi-threaded WASM needs cross-origin isolation (COOP/COEP headers set in next.config)
+  const cores = (self.navigator && navigator.hardwareConcurrency) || 2;
+  rt.env.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(4, cores - 1)) : 1;
   rt.env.logLevel = 'error';
 
   manifest = await (await fetch(`${modelsBase}/manifest.json`)).json();
@@ -69,6 +71,7 @@ async function init({ wasmPaths, modelsBase }) {
   ppeThresholds = { [manifest.person_label]: thr.worker };
   Object.values(items).forEach(v => { ppeThresholds[v.present] = thr.ppe; ppeThresholds[v.absent] = thr.violation; });
   (manifest.context_labels || []).forEach(l => { ppeThresholds[l] = thr.context; });
+  Object.assign(ppeThresholds, manifest.class_thresholds || {});
   fireThresholds = { fire: thr.fire_low ?? thr.fire, smoke: thr.smoke };
 
   let gpuOk = false;
@@ -101,7 +104,7 @@ async function init({ wasmPaths, modelsBase }) {
 
   // Warm-up run so the first real frame is fast
   await runAll(new Float32Array(3 * size * size));
-  post({ type: 'ready', provider, manifest });
+  post({ type: 'ready', provider, manifest, threads: rt.env.wasm.numThreads });
 }
 
 // ── Pre-processing ─────────────────────────────────────────────────────────

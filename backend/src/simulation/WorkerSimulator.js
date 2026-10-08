@@ -1,6 +1,6 @@
 // Worker Location Simulator — Brownian motion on plant floor
 const { EventEmitter } = require('events');
-const plantLayout = require('../data/plant-layout.json');
+const defaultLayout = require('../data/plant-layout.json');
 
 const WORKERS = [
   { id: 'W-001', name: 'Rajan Kumar', role: 'Operator', shift: 'A', badge: 'B-001' },
@@ -18,10 +18,10 @@ const WORKERS = [
 ];
 
 class WorkerSimulator extends EventEmitter {
-  constructor() {
+  constructor(layout = defaultLayout) {
     super();
     this.workers = {};
-    this.zones = plantLayout.zones;
+    this.zones = layout.zones;
     this._initializeWorkers();
   }
 

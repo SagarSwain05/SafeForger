@@ -40,6 +40,18 @@ flowchart LR
   AM -- "Telegram · webhook · SMS (simulated)" --> People["Fire & Safety · Safety Officer<br/>Supervisor · permit holders"]
 ```
 
+## Accounts and sites (multi-tenant)
+
+- **Auth.** Registration sends a Brevo email OTP (hashed, 15-minute expiry, 5 attempts). Login issues an HS256 JWT. Password reset uses the same OTP flow. The demo account is re-seeded at every boot.
+- **Sites.** A site is a digital twin built from one of 10 sector templates. Templates share the 15-zone / 11-sensor / 6-camera geometry and differ in zone names, hazard classes, PPE rules, cameras and permit titles.
+  - Presets reference real facilities (simulated data, clearly labelled).
+  - Custom sites belong to their creator and the teammates they invite.
+- **Isolation.** Each site gets a `SiteRuntime` with its own simulators, vision hub, permits, risk engine, alerts and emergency state. Runtimes start on first use and stop after 15 idle minutes.
+  - REST lives under `/api/sites/:siteId/*`.
+  - Sockets authenticate with `{token, siteId}` and join the site's room.
+  - Edge agents publish with the site's **ingest key** (`X-API-Key`).
+- **Storage.** MongoDB when `MONGO_URI` is set, otherwise a JSON file.
+
 ## Vision pipeline (identical on both edges)
 
 1. **Letterbox** the frame to 640×640 (pad 114), normalise and convert to CHW.
@@ -52,8 +64,11 @@ flowchart LR
    - Each PPE item is assigned to the worker box that contains it.
    - A "No-Helmet" with no matching worker creates an inferred worker.
    - Every item is `ok`, `missing` or `unknown`. Only explicit `missing` on a required item is a violation, which keeps occlusion from causing false alarms.
-6. **Temporal confirmation**: k-of-n frames per event type. A single image counts as its own window.
-7. **Payload**: workers, hazards, events and an evidence JPEG when an event type is newly confirmed.
+6. **Tracking (live video)**: workers are matched across frames (IoU / centroid) for stable IDs and eased boxes. Each PPE item is voted over the last 8 observations; *missing* needs ≥ 3, and the worker shows amber "checking" until then.
+7. **Temporal confirmation**: k-of-n frames per event type. A single image counts as its own window.
+8. **Payload**: workers, hazards, events and an evidence JPEG when an event type is newly confirmed.
+
+The browser runtime is self-hosted under `/ort`. The app is served with COOP/COEP (`credentialless`), so WebAssembly runs multi-threaded (up to 4 threads) when WebGPU is unavailable.
 
 The backend **re-evaluates PPE** against the *effective* requirement: zone baseline plus PPE demanded by active permits. Edges therefore never need to know about permits.
 

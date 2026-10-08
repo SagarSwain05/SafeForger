@@ -1,29 +1,10 @@
 'use client';
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { api, WS_URL } from './api';
+import { useAuth } from './auth';
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001').replace(/\/$/, '');
-const WS_URL = (process.env.NEXT_PUBLIC_WS_URL || API_URL).replace(/\/$/, '');
-
-/** fetch wrapper for the backend API with a timeout and JSON handling. */
-export async function api<T = any>(path: string, init: RequestInit & { json?: unknown; timeoutMs?: number } = {}): Promise<T> {
-  const { json, timeoutMs = 20000, ...rest } = init;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${API_URL}/api${path}`, {
-      ...rest,
-      signal: ctrl.signal,
-      headers: { ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(rest.headers || {}) },
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(body?.error || `HTTP ${res.status}`), { status: res.status, body });
-    return body as T;
-  } finally {
-    clearTimeout(t);
-  }
-}
+export { api, API_URL, WS_URL } from './api';
 
 export interface Alert {
   id: string; key: string; type: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -55,12 +36,16 @@ interface SocketContextValue {
   alertStats: any;
   latestAlert: Alert | null;
   refreshAlerts: () => void;
+  reconnect: () => void;
+  connectError: string | null;
+  lastEventAt: number | null;
+  restarting: boolean;
 }
 
 const SocketContext = createContext<SocketContextValue>({
   socket: null, connected: false, everConnected: false, sensors: [], workers: [], permits: [], riskData: null,
   emergencyState: null, shiftInfo: null, scada: null, scenario: 'NORMAL', cvDetections: {}, alerts: [], alertStats: null,
-  latestAlert: null, refreshAlerts: () => {},
+  latestAlert: null, refreshAlerts: () => {}, reconnect: () => {}, connectError: null, lastEventAt: null, restarting: false,
 });
 
 export function SocketProvider({ children }: { children: ReactNode }) {
@@ -80,18 +65,29 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertStats, setAlertStats] = useState<any>(null);
   const [latestAlert, setLatestAlert] = useState<Alert | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [lastEventAt, setLastEventAt] = useState<number | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const { token, siteId } = useAuth();
 
   const refreshAlerts = useCallback(() => {
     api<Alert[]>('/alerts?limit=100').then(setAlerts).catch(() => {});
   }, []);
 
   useEffect(() => {
-    const s = io(WS_URL, { transports: ['websocket', 'polling'], reconnectionDelayMax: 5000 });
+    if (!token || !siteId) return;
+    // Fresh state per site
+    setSensors([]); setWorkers([]); setPermits([]); setRiskData(null); setEmergencyState(null);
+    setScada(null); setCvDetections({}); setAlerts([]); setAlertStats(null); setLatestAlert(null);
+    const s = io(WS_URL, { transports: ['websocket', 'polling'], reconnectionDelayMax: 5000, auth: { token, siteId } });
     socketRef.current = s;
     setSocket(s);
 
-    s.on('connect', () => { setConnected(true); setEverConnected(true); });
+    s.on('connect', () => { setConnected(true); setEverConnected(true); setConnectError(null); setRestarting(false); });
     s.on('disconnect', () => setConnected(false));
+    s.on('connect_error', (err: Error) => setConnectError(err.message));
+    s.on('system:restarting', () => setRestarting(true));
+    s.onAny(() => setLastEventAt(Date.now()));
     s.on('sensors:initial', setSensors);
     s.on('sensors:update', setSensors);
     s.on('workers:initial', setWorkers);
@@ -126,12 +122,19 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
 
     return () => { s.disconnect(); };
+  }, [token, siteId]);
+
+  const reconnect = useCallback(() => {
+    const s = socketRef.current;
+    if (!s) return;
+    s.disconnect();
+    s.connect();
   }, []);
 
   return (
     <SocketContext.Provider value={{
       socket, connected, everConnected, sensors, workers, permits, riskData, emergencyState, shiftInfo,
-      scada, scenario, cvDetections, alerts, alertStats, latestAlert, refreshAlerts,
+      scada, scenario, cvDetections, alerts, alertStats, latestAlert, refreshAlerts, reconnect, connectError, lastEventAt, restarting,
     }}>
       {children}
     </SocketContext.Provider>
@@ -139,4 +142,3 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 }
 
 export const useSocket = () => useContext(SocketContext);
-export { API_URL, WS_URL };

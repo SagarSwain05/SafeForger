@@ -104,5 +104,9 @@
     "fire": 2,
     "smoke": 3,
     "ppe": 3
+  },
+  "class_thresholds": {
+    "Hard_hat": 0.3,
+    "Vest": 0.32
   }
 }

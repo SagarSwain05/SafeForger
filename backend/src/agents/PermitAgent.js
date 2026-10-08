@@ -2,14 +2,15 @@
 // issued: atmosphere in the zone and adjacent zones, SIMOPS conflicts, CCTV PPE compliance,
 // and the PPE the work will require. Blocks unsafe permits; explains every decision.
 const llm = require('../services/llm');
-const { detectSimops, PERMIT_TYPES } = require('../data/permitStore');
+const { PERMIT_TYPES } = require('../data/permitStore');
 const regulations = require('../data/regulations.json');
 
 const FLAMMABLE = ['CH4', 'H2S'];
 
 class PermitAgent {
-  constructor({ kg, layout }) {
+  constructor({ kg, layout, permits }) {
     this.kg = kg;
+    this.permits = permits;
     this.layout = layout;
   }
 
@@ -40,7 +41,7 @@ class PermitAgent {
       gas.forEach(s => violations.push({ severity: 'BLOCK', rule: 'Factories Act 1948, Section 36', message: `${s.type} ${s.value} ${s.unit} inside the confined space.` }));
     }
 
-    const conflicts = detectSimops({ type, zone, id: 'NEW' });
+    const conflicts = this.permits.detectSimops({ type, zone, id: 'NEW' });
     conflicts.forEach(c => warnings.push({ severity: 'WARN', rule: 'OISD-STD-105 (SIMOPS)', message: `${c.reason}. A SIMOPS risk assessment must be signed before issue.` }));
 
     const v = vision[zone];

@@ -1,40 +1,121 @@
-// End-to-end tests against an isolated platform instance (no LLM, no MQTT, random port).
+// End-to-end tests against an isolated platform instance (no LLM, no MQTT, no email, random port).
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
 process.env.MQTT_ENABLED = 'false';
 for (let i = 1; i <= 5; i++) process.env[`GEMINI_KEY_${i}`] = '';
+process.env.GEMINI_API_KEYS = '';
 process.env.TELEGRAM_BOT_TOKEN = '';
 process.env.ALERT_WEBHOOK_URL = '';
+process.env.BREVO_API_KEY = '';
+process.env.MONGO_URI = '';
+process.env.MONGODB_URI = '';
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'safeforge-test-'));
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createPlatform } = require('../src/platform');
 
-let platform, base;
-const api = async (path, opts = {}) => {
-  const res = await fetch(base + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+const SITE = 'demo-refinery';
+let platform, root, token;
+const call = async (url, opts = {}, auth = token) => {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}), ...(opts.headers || {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
   return { status: res.status, body: await res.json() };
 };
+const api = (p, opts) => call(`${root}/sites/${SITE}${p}`, opts);   // site-scoped
+const g = (p, opts, auth) => call(`${root}${p}`, opts, auth);        // global
+const runtime = () => platform.ctx.sites.runtimes.get(SITE);
 
 /** Fast-forward the sensor simulator by n ticks (2 s each) without waiting in real time. */
 function fastForward(n) {
+  const rt = runtime();
   let t = Date.now() - n * 2000;
-  for (let i = 0; i < n; i++) { t += 2000; platform.sensorSim._step(t); }
-  platform.sensorSim.readings = platform.sensorSim._snapshot();
-  platform.state.sensors = platform.sensorSim.readings;
+  for (let i = 0; i < n; i++) { t += 2000; rt.sensorSim._step(t); }
+  rt.sensorSim.readings = rt.sensorSim._snapshot();
+  rt.state.sensors = rt.sensorSim.readings;
 }
 
 before(async () => {
   platform = createPlatform();
   const port = await platform.start(0);
-  base = `http://127.0.0.1:${port}/api`;
+  root = `http://127.0.0.1:${port}/api`;
+  const login = await g('/auth/login', { method: 'POST', body: { email: 'safeforgerdemo@gmail.com', password: 'Safeforger@20226' } }, null);
+  assert.equal(login.status, 200, JSON.stringify(login.body));
+  token = login.body.token;
+  await api('/risk');   // start the demo site runtime
 });
 after(async () => { await platform.stop(); });
 
-test('health reports services', async () => {
-  const { status, body } = await api('/health');
-  assert.equal(status, 200);
+test('demo account is seeded and wrong passwords are rejected', async () => {
+  assert.ok(token);
+  const me = await g('/auth/me');
+  assert.equal(me.body.user.email, 'safeforgerdemo@gmail.com');
+  assert.equal(me.body.user.isDemo, true);
+  assert.equal((await g('/auth/login', { method: 'POST', body: { email: 'safeforgerdemo@gmail.com', password: 'nope12345' } }, null)).status, 401);
+});
+
+test('site API requires authentication', async () => {
+  assert.equal((await call(`${root}/sites/${SITE}/risk`, {}, null)).status, 401);
+  assert.equal((await g('/sites', {}, null)).status, 401);
+});
+
+test('registration without email service activates the account', async () => {
+  const r = await g('/auth/register', { method: 'POST', body: { name: 'Asha Rao', email: 'asha@example.com', password: 'Factory2026', role: 'Shift Supervisor', organization: 'Test Steel' } }, null);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.verificationRequired, false);
+  assert.ok(r.body.token);
+  assert.equal((await g('/auth/register', { method: 'POST', body: { name: 'x', email: 'asha@example.com', password: 'Factory2026' } }, null)).status, 409);
+  assert.equal((await g('/auth/register', { method: 'POST', body: { name: 'x', email: 'weak@example.com', password: 'short' } }, null)).status, 400);
+});
+
+test('site catalogue lists real-facility presets across sectors', async () => {
+  const { body } = await g('/sites');
+  assert.ok(body.length >= 15);
+  const sectors = new Set(body.map(s => s.sector));
+  ['refinery', 'steel', 'power', 'mining', 'automotive'].forEach(x => assert.ok(sectors.has(x), x));
+  assert.ok(body.some(s => s.id === 'rinl-vizag-steel'));
+  assert.ok(!('ingestKey' in body[0]), 'catalogue never leaks ingest keys');
+});
+
+test('custom site: create, isolate from other users, ingest with key', async () => {
+  const created = await g('/sites', { method: 'POST', body: {
+    name: 'Ennore Test Works', company: 'Test Co', sector: 'steel', city: 'Chennai', state: 'Tamil Nadu',
+    cameras: [{ label: 'Gate cam', zone: 'Z-03', sourceType: 'rtsp', url: 'rtsp://10.0.0.5/stream' }],
+    contacts: [{ name: 'Kiran Das', role: 'Safety Officer', email: 'kiran@example.com' }],
+  } });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.id;
+  const detail = (await g(`/sites/${id}`)).body;
+  assert.equal(detail.layout.zones[0].name, 'Coke Oven Battery');
+  assert.equal(detail.layout.cameras[0].label, 'Gate cam');
+  assert.ok(detail.ingestKey);
+
+  const other = (await g('/auth/register', { method: 'POST', body: { name: 'Other', email: 'other@example.com', password: 'Factory2026' } }, null)).body.token;
+  assert.equal((await g(`/sites/${id}`, {}, other)).status, 404);
+  assert.equal((await call(`${root}/sites/${id}/risk`, {}, other)).status, 404);
+
+  const payload = { camera_id: 'CAM-01', workers: [{ id: 'W1', bbox: [0, 0, 5, 5], confidence: 0.9, ppe: { helmet: 'missing' } }], events: [{ type: 'PPE_VIOLATION' }] };
+  assert.equal((await call(`${root}/sites/${id}/vision/detections`, { method: 'POST', body: payload, headers: { 'X-API-Key': 'wrong' } }, null)).status, 401);
+  const ok = await call(`${root}/sites/${id}/vision/detections`, { method: 'POST', body: payload, headers: { 'X-API-Key': detail.ingestKey } }, null);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.zone, 'Z-03');
+  const alerts = (await call(`${root}/sites/${id}/alerts?type=PPE_VIOLATION`)).body;
+  assert.equal(alerts.length, 1);
+  assert.ok(alerts[0].recipients.some(r => r.name === 'Kiran Das'), 'site contacts are used for routing');
+  // the demo site is unaffected
+  assert.equal((await api('/alerts?type=PPE_VIOLATION')).body.length, 0);
+  assert.equal((await g(`/sites/${id}`, { method: 'DELETE' })).status, 200);
+});
+
+test('system status reports storage and email modes', async () => {
+  const { body } = await g('/system/status', {}, null);
   assert.equal(body.status, 'ok');
-  assert.equal(body.services.sensors, 11);
-  assert.equal(body.services.llm.configured, false);
+  assert.equal(body.storage.kind, 'file');
+  assert.equal(body.email.verification, false);
 });
 
 test('baseline plant is calm', async () => {
@@ -44,9 +125,9 @@ test('baseline plant is calm', async () => {
 });
 
 test('permit intelligence blocks hot work into a gas build-up', async () => {
-  platform.sensorSim.setScenario('KILL_CHAIN');
+  runtime().sensorSim.setScenario('KILL_CHAIN');
   fastForward(40);
-  const ch4 = platform.state.sensors.find(s => s.id === 'S-GAS-01');
+  const ch4 = runtime().state.sensors.find(s => s.id === 'S-GAS-01');
   assert.equal(ch4.status, 'NORMAL', 'drift must stay below the alarm level');
   assert.ok(ch4.value > 6, `CH4 should have drifted, got ${ch4.value}`);
   const { body } = await api('/permits/validate', { method: 'POST', body: { type: 'HOT_WORK', zone: 'Z-01' } });
@@ -63,7 +144,7 @@ test('activating a blocked permit without force is refused', async () => {
 test('kill chain: paper permit → compound risk → autonomous emergency → permit suspended', async () => {
   const { body } = await api('/demo/kill-chain', { method: 'POST', body: { step: 'permit' } });
   assert.equal(body.status, 'CRITICAL');
-  const risk = platform.state.risk;
+  const risk = runtime().state.risk;
   assert.ok(risk.alerts.some(a => a.ruleId === 'CR-001'), 'CR-001 must fire');
   assert.ok(risk.zoneScores['Z-01'].score >= 80);
   const em = (await api('/emergency/state')).body;
@@ -178,7 +259,7 @@ test('a second critical incident extends the active emergency and suspends its p
   await api('/vision/detections', { method: 'POST', body: visionPayload({ camera_id: 'CAM-05', workers: [], fire_detected: true, fire_confidence: 0.8, events: [{ type: 'FIRE' }] }) });
   assert.deepEqual((await api('/emergency/state')).body.affectedZones, ['Z-13']);
   // Incident 2: kill chain in the CDU while the emergency is active
-  platform.sensorSim.setScenario('KILL_CHAIN');
+  runtime().sensorSim.setScenario('KILL_CHAIN');
   fastForward(40);
   await api('/demo/kill-chain', { method: 'POST', body: { step: 'permit' } });
   const em = (await api('/emergency/state')).body;

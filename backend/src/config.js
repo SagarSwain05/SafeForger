@@ -32,6 +32,26 @@ module.exports = {
     staleMs: 30000,
     autoEmergencyOnFire: process.env.AUTO_EMERGENCY_ON_FIRE !== 'false',
   },
+  auth: {
+    // Set JWT_SECRET in production so sessions survive restarts; a random one is used otherwise
+    jwtSecret: process.env.JWT_SECRET || require('crypto').randomBytes(32).toString('hex'),
+    jwtSecretIsEphemeral: !process.env.JWT_SECRET,
+    demoEmail: (process.env.DEMO_EMAIL || 'safeforgerdemo@gmail.com').toLowerCase(),
+    demoPassword: process.env.DEMO_PASSWORD || 'Safeforger@20226',
+  },
+  email: {
+    brevoKey: process.env.BREVO_API_KEY || '',
+    from: process.env.EMAIL_FROM || '',
+    fromName: process.env.EMAIL_FROM_NAME || 'SafeForge Nexus',
+  },
+  store: {
+    mongoUri: process.env.MONGO_URI || process.env.MONGODB_URI || '',
+    mongoDb: process.env.MONGO_DB || 'safeforge',
+    dataDir: process.env.DATA_DIR || require('path').join(__dirname, '..', 'data'),
+  },
+  runtime: {
+    idleStopMs: Number(process.env.SITE_IDLE_STOP_MS) || 15 * 60000,
+  },
   simulation: {
     sensorMs: 2000,
     workerMs: 1500,

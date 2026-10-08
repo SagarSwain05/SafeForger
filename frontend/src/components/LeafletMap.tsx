@@ -25,16 +25,16 @@ const PLANT_W = 1180;
 const PLANT_H = 640;
 
 const STATUS_COLOR: Record<string, string> = {
-  SAFE: '#00e676', NORMAL: '#00e676', LOW: '#69f0ae',
-  WARNING: '#ffb300', ELEVATED: '#ff8f00', HIGH: '#ff5252', CRITICAL: '#ff1744',
+  SAFE: '#16a34a', NORMAL: '#16a34a', LOW: '#22c55e',
+  WARNING: '#d97706', ELEVATED: '#ea580c', HIGH: '#ef4444', CRITICAL: '#e11d48',
 };
 
 function getRiskColor(score: number): string {
-  if (score >= 75) return '#ff1744'; // critical
-  if (score >= 50) return '#ff5252'; // high
-  if (score >= 25) return '#ff8f00'; // warning
-  if (score >= 10) return '#ffb300'; // normal/low
-  return '#00e676'; // safe
+  if (score >= 75) return '#e11d48'; // critical
+  if (score >= 50) return '#ef4444'; // high
+  if (score >= 25) return '#ea580c'; // warning
+  if (score >= 10) return '#d97706'; // normal/low
+  return '#16a34a'; // safe
 }
 
 export default function LeafletMap({
@@ -94,23 +94,25 @@ export default function LeafletMap({
 
     // Add a dark canvas grid or layout background image if we want
     // Since we don't have a static image file, we draw a premium vector layout grid directly on map load.
-    const bgContainer = L.rectangle(bounds, {
-      fillColor: '#050914',
-      fillOpacity: 1,
-      color: '#1e293b',
-      weight: 2,
-      interactive: false,
-    }).addTo(map);
+    const bgContainer = L.rectangle(bounds, { fillOpacity: 1, weight: 2, interactive: false }).addTo(map);
+    // SVG attributes can't read CSS variables — resolve theme colours now and on every toggle
+    const applyTheme = () => {
+      const cs = getComputedStyle(document.documentElement);
+      bgContainer.setStyle({ fillColor: cs.getPropertyValue('--map-bg').trim() || '#050914', color: cs.getPropertyValue('--map-border').trim() || '#1e293b' });
+    };
+    applyTheme();
+    window.addEventListener('sf-theme', applyTheme);
 
     // Draw grid lines
     for (let x = 80; x < PLANT_W; x += 80) {
-      L.polyline([[0, x], [PLANT_H, x]], { color: 'rgba(56, 100, 200, 0.04)', weight: 1, interactive: false }).addTo(map);
+      L.polyline([[0, x], [PLANT_H, x]], { color: 'rgba(56,100,200,0.08)', weight: 1, interactive: false }).addTo(map);
     }
     for (let y = 80; y < PLANT_H; y += 80) {
-      L.polyline([[y, 0], [y, PLANT_W]], { color: 'rgba(56, 100, 200, 0.04)', weight: 1, interactive: false }).addTo(map);
+      L.polyline([[y, 0], [y, PLANT_W]], { color: 'rgba(56,100,200,0.08)', weight: 1, interactive: false }).addTo(map);
     }
 
     return () => {
+      window.removeEventListener('sf-theme', applyTheme);
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -176,7 +178,7 @@ export default function LeafletMap({
         L.marker(labelLatLng, {
           icon: L.divIcon({
             className: 'zone-label-marker',
-            html: `<div style="text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #e8f0ff; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${zone.id}</div>`,
+            html: `<div style="text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: var(--text-primary);">${zone.id}</div>`,
             iconSize: [80, 20],
             iconAnchor: [40, 10],
           }),
@@ -199,7 +201,7 @@ export default function LeafletMap({
 
       const marker = L.circleMarker([lat, lng], {
         radius: 6,
-        fillColor: '#00b0ff',
+        fillColor: '#0ea5e9',
         fillOpacity: 0.8,
         color: '#ffffff',
         weight: 1,
@@ -207,7 +209,7 @@ export default function LeafletMap({
 
       // Tooltip/popup info
       marker.bindTooltip(
-        `<div style="font-family: 'Inter', sans-serif; font-size: 11px; padding: 4px; background: #080f1e; border: 1px solid rgba(56,100,200,0.3); border-radius: 4px; color: #fff;">
+        `<div style="font-family: 'Inter', sans-serif; font-size: 11px; padding: 4px; background: #080f1e; border: 1px solid var(--border-subtle); border-radius: 4px; color: #fff;">
           <strong>${w.name}</strong><br/>
           <span style="color: #8ba0c4;">${w.role}</span>
          </div>`,
@@ -223,7 +225,7 @@ export default function LeafletMap({
       const lng = s.x;
 
       const reading = sensors.find((rs) => rs.id === s.id);
-      const color = reading ? STATUS_COLOR[reading.status] ?? '#00e676' : '#4a6080';
+      const color = reading ? STATUS_COLOR[reading.status] ?? '#16a34a' : '#64748b';
 
       const tip = `<div style="font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px; background: #080f1e; color: #fff; border-radius: 4px;">
             <strong>${s.id} (${s.type})</strong><br/>
@@ -265,7 +267,7 @@ export default function LeafletMap({
         const camMarker = L.marker([lat, lng], {
           icon: L.divIcon({
             className: 'cam-marker-icon',
-            html: `<div style="width: 14px; height: 14px; background: rgba(8,15,30,0.85); border: 1.5px solid #00e676; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #00e676;">📷</div>`,
+            html: `<div style="width: 14px; height: 14px; background: var(--bg-panel); border: 1.5px solid #16a34a; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #16a34a;">📷</div>`,
             iconSize: [16, 16],
             iconAnchor: [8, 8],
           }),
@@ -289,9 +291,9 @@ export default function LeafletMap({
         ];
 
         const fovCone = L.polygon([p1, p2, p3], {
-          fillColor: '#00e676',
+          fillColor: '#16a34a',
           fillOpacity: 0.04,
-          color: '#00e676',
+          color: '#16a34a',
           weight: 0.5,
           dashArray: '3,3',
           interactive: false,
@@ -315,7 +317,7 @@ export default function LeafletMap({
       const left = zone.x + 4;
       const right = zone.x + zone.w - 4;
 
-      const pColor = permit.type === 'HOT_WORK' ? '#ff4444' : permit.type === 'CONFINED_SPACE' ? '#ff8844' : '#ffff44';
+      const pColor = permit.type === 'HOT_WORK' ? '#ff4444' : permit.type === 'CONFINED_SPACE' ? '#ff8844' : '#ca8a04';
 
       const poly = L.rectangle([[bottom, left], [top, right]], {
         fillColor: 'transparent',
@@ -334,7 +336,7 @@ export default function LeafletMap({
     layout.cameras.forEach((cam: any) => {
       const d = vision[cam.zone];
       const live = d && d.camera_id === cam.id;
-      const status = !live ? '#4a6080' : d.fire_detected ? '#f97316' : d.smoke_detected ? '#a3a3a3' : d.ppe_violations ? '#ef4444' : '#00e676';
+      const status = !live ? '#64748b' : d.fire_detected ? '#f97316' : d.smoke_detected ? '#a3a3a3' : d.ppe_violations ? '#ef4444' : '#16a34a';
       const m = L.circleMarker([PLANT_H - cam.y, cam.x], { radius: 11, color: status, weight: 2, fill: false, interactive: false }).addTo(map);
       layers.cv.push(m);
       if (live && (d.fire_detected || d.smoke_detected)) {
@@ -362,7 +364,7 @@ export default function LeafletMap({
     // Open alert pins at their location
     alerts.filter((a: any) => a.status !== 'RESOLVED' && a.location && ['FIRE', 'SMOKE', 'PPE_VIOLATION'].includes(a.type)).slice(0, 15).forEach((a: any) => {
       const pin = L.circleMarker([PLANT_H - a.location.y, a.location.x], {
-        radius: 16, color: a.severity === 'CRITICAL' ? '#ff1744' : '#ff6d00', weight: 2, dashArray: '4,3', fill: false,
+        radius: 16, color: a.severity === 'CRITICAL' ? '#e11d48' : '#ea580c', weight: 2, dashArray: '4,3', fill: false,
       }).addTo(map);
       pin.bindTooltip(`${a.title} (${a.status})`);
       layers.cv.push(pin);
@@ -377,8 +379,8 @@ export default function LeafletMap({
         width: '100%',
         height: '520px',
         borderRadius: '10px',
-        border: '1px solid rgba(56, 100, 200, 0.15)',
-        background: '#050914',
+        border: '1px solid var(--border-subtle)',
+        background: 'var(--map-bg)',
       }}
     />
   );

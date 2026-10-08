@@ -2,7 +2,7 @@
 // with scripted scenario drifts for the demo. Swap for real Modbus/OPC-UA readings in production:
 // everything downstream only consumes the reading objects emitted here.
 const { EventEmitter } = require('events');
-const plantLayout = require('../data/plant-layout.json');
+const defaultLayout = require('../data/plant-layout.json');
 
 const SENSOR_TYPES = {
   CH4:      { baseline: 2.0,  noise: 0.12, unit: '% LEL', min: 0, max: 100, warningThreshold: 10, criticalThreshold: 20 },
@@ -27,13 +27,13 @@ const SCENARIOS = {
 const SCENARIO_RATE = { KILL_CHAIN: 0.06, EMERGENCY: 0.12 };
 
 class SensorSimulator extends EventEmitter {
-  constructor() {
+  constructor(layout = defaultLayout) {
     super();
     this.sensors = {};
     this.scenario = 'NORMAL';
     this.scenarioStep = 0;
     this.readings = [];
-    plantLayout.sensors.forEach(s => {
+    layout.sensors.forEach(s => {
       const cfg = SENSOR_TYPES[s.type];
       this.sensors[s.id] = { ...s, ...cfg, value: cfg.baseline + (Math.random() - 0.5) * cfg.noise, status: 'NORMAL', history: [] };
     });

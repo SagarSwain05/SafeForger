@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SafeForge Edge Vision Agent — launcher
+# Needs SAFEFORGE_SITE and SAFEFORGE_API_KEY (dashboard → Site settings → Edge agent).
 #   ./start_cv.sh demo   [backend_url]              loop bundled sample media (real inference)
 #   ./start_cv.sh webcam [camera_id] [device]       local webcam with preview window
 #   ./start_cv.sh rtsp   <camera_id> <rtsp_url>     IP camera

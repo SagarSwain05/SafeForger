@@ -36,3 +36,6 @@ yarn-error.log*
 # Local tooling
 .vercel
 cv-service/venv/
+
+# Local file store
+backend/data/

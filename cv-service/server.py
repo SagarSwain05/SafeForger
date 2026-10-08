@@ -31,7 +31,7 @@ engine = VisionEngine(os.environ.get("SAFEFORGE_MODELS_DIR"))
 layout = load_layout(os.environ.get("SAFEFORGE_LAYOUT"))
 homography = HomographyEngine({}, layout)
 backend = os.environ.get("SAFEFORGE_BACKEND_URL")
-publisher = HttpPublisher(backend, os.environ.get("SAFEFORGE_API_KEY")) if backend else None
+publisher = HttpPublisher(backend, os.environ.get("SAFEFORGE_API_KEY"), site=os.environ.get("SAFEFORGE_SITE", "demo-refinery")) if backend else None
 STARTED = time.time()
 MAX_BYTES = 12 * 1024 * 1024
 

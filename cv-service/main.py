@@ -9,7 +9,7 @@ Examples:
   python main.py --source 0 --camera CAM-01 --display                      # webcam
   python main.py --source "rtsp://user:pass@10.0.0.20:554/stream1" --camera CAM-03
   python main.py --source ../samples/no_ppe_street.jpg --once               # print JSON for one image
-  python main.py --demo --backend-url https://safeforger-backend.onrender.com   # loop the bundled samples
+  python main.py --demo --backend-url https://safeforger-backend.onrender.com --site demo-refinery --api-key <ingest key>
 
 Backend URL can also be set with SAFEFORGE_BACKEND_URL; multi-camera: run one process per camera.
 """
@@ -135,11 +135,16 @@ def run(args):
     homography = HomographyEngine(config, layout)
 
     backend_url = args.backend_url or os.environ.get("SAFEFORGE_BACKEND_URL")
-    http = HttpPublisher(backend_url, os.environ.get("SAFEFORGE_API_KEY")) if backend_url and not args.once else None
+    api_key = args.api_key or os.environ.get("SAFEFORGE_API_KEY")
+    site = args.site or os.environ.get("SAFEFORGE_SITE", "demo-refinery")
+    if backend_url and not args.once and not api_key:
+        logger.error("A site ingest key is required to publish (Site settings → Edge agent). Use --api-key or SAFEFORGE_API_KEY.")
+        return
+    http = HttpPublisher(backend_url, api_key, site=site) if backend_url and not args.once else None
     mqtt = None
     if args.mqtt:
         from mqtt_client import SafeForgerMqttClient
-        mqtt = SafeForgerMqttClient(config)
+        mqtt = SafeForgerMqttClient(config, site=args.site or os.environ.get("SAFEFORGE_SITE", "demo-refinery"))
 
     if args.demo:
         source = [str(SAMPLES / n) for n in ("no_ppe_street.jpg", "ppe_mixed_site.jpg", "fire_outdoor.webm", "smoke_warehouse.jpg", "ppe_compliant_crew.jpg")]
@@ -226,6 +231,8 @@ def main():
     ap.add_argument("--camera", default="CAM-01", help="Camera ID from plant-layout.json (default CAM-01)")
     ap.add_argument("--zone", default=None, help="Override the camera's zone")
     ap.add_argument("--backend-url", default=None, help="SafeForge backend base URL (or SAFEFORGE_BACKEND_URL)")
+    ap.add_argument("--site", default=None, help="Site ID from the dashboard (or SAFEFORGE_SITE; default demo-refinery)")
+    ap.add_argument("--api-key", default=None, help="Site ingest key from Site settings (or SAFEFORGE_API_KEY)")
     ap.add_argument("--mqtt", action="store_true", help="Also publish to the plant MQTT broker (config.json)")
     ap.add_argument("--config", default=str(HERE / "config.json"))
     ap.add_argument("--models-dir", default=None, help="Directory with manifest.json + ONNX models (default ../models)")

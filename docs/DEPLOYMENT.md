@@ -14,14 +14,18 @@
 
 | Variable | Purpose |
 |---|---|
+| `JWT_SECRET` | Signs session tokens. Set it so logins survive restarts. |
 | `FRONTEND_URL` | CORS allow-list (comma-separated). Currently the Vercel production domains. |
+| `MONGO_URI` (+ `MONGO_DB`) | Optional. Durable storage for registered users and custom sites. Without it they live in a JSON file that resets when the free instance restarts; the demo account and facility twins are rebuilt on every boot. |
+| `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | Optional. Email OTP verification and password reset. `EMAIL_FROM` must be a sender verified in Brevo. Without them, new accounts are active immediately. |
+| `DEMO_EMAIL`, `DEMO_PASSWORD` | Demo account (defaults: safeforgerdemo@gmail.com / Safeforger@20226). |
 | `PUBLIC_DASHBOARD_URL` | Deep links inside Telegram/webhook alerts |
 | `GEMINI_API_KEYS` | Comma-separated Gemini keys (rotated; models configurable via `GEMINI_MODELS` / `GEMINI_FAST_MODELS`) |
 | `MQTT_ENABLED=false` | Render only exposes the HTTP port; edge agents publish over HTTPS |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Optional: real alert delivery to a Telegram group |
 | `ALERT_WEBHOOK_URL` | Optional: Slack / Discord / Teams incoming webhook |
 
-**Free-tier note:** the service sleeps after about 15 minutes idle. The first request takes 30–60 s, and the dashboard shows a "waking the backend" banner meanwhile. Open the dashboard a minute before a demo. State is in memory and resets on restart or redeploy.
+**Free-tier note:** the service sleeps after about 15 minutes idle. The first request takes 30–60 s. The sidebar status pill shows *Server waking up*; its panel has **Wake** (pings until the server is up), **Reconnect** and **Restart**. Restart asks the server to exit, and Render restarts it automatically. Plant simulation state is in memory and resets on restart.
 
 ## Dashboard (Vercel)
 ```bash
@@ -46,7 +50,7 @@ docker build -f cv-service/Dockerfile -t safeforge-vision .          # from repo
 3. Verify with `curl -X POST https://safeforger-backend.onrender.com/api/notifications/test`.
 
 ## Verification checklist (run for this release)
-- `backend: npm test`: 21/21 passing (kill chain, vision → alert, two-incident emergency, ack/resolve, RAG, 100-minute noise soak)
+- `backend: npm test`: 27/27 passing (auth, site isolation, ingest keys, kill chain, vision → alert, two-incident emergency, ack/resolve, RAG, sector templates, 100-minute noise soak)
 - `cv-service: pytest`: 10/10 passing
 - `frontend: npm run build`: clean
 - Production browser e2e (headless Chromium):

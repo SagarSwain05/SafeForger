@@ -5,6 +5,9 @@ Open the dashboard about a minute before you present. The free hosting tier slee
 ## 1. The problem (30 s)
 "Factories have the cameras and the sensors. The data exists, but nobody acts on it in time: a missing helmet on CCTV nobody is watching, smoke seen minutes late, a gas reading that looks normal until hot work starts next to it."
 
+## 1b. Sign in and pick a site (20 s)
+On the home page press **Try the live demo**, which signs in as the demo supervisor. The site picker lists sandbox plants and digital twins of real facilities across 10 sectors. Choose **SafeForge Demo Refinery** for the guided demo, or show **Create a site** (sector template → zones and PPE → cameras → contacts).
+
 ## 2. PPE and fire detection on real footage (2 min) — Vision AI
 1. Open **Vision AI**. The models load once (about 57 MB, then cached). The chip shows *WebGPU* or *WASM*.
 2. **Sample footage → "No PPE — workers at a pump station entry"**.
@@ -13,7 +16,8 @@ Open the dashboard about a minute before you present. The free hosting tier slee
    - A toast pops up: *PPE violation — Pump Station A*, with the people notified.
 3. **Sample → "Compliant crew"**: green boxes and no alert, so it isn't just flagging everyone.
 4. **Sample → "Fire & smoke — recorded footage (video)"**: fire is confirmed after 2 frames. A critical toast and alarm tone fire, and an automatic emergency is declared.
-5. Optionally press **Live webcam** and step in front of it without a helmet.
+5. Press **◎ Corner webcam**. Your webcam becomes a second camera in the corner of the stage, analysed alongside the footage. Step in without a helmet: the box turns amber (*checking*), then red once missing gear is seen in 3 frames. Press ⤢ to move it to the main stage.
+6. When fire is confirmed, the **siren** sounds and a full-screen emergency overlay appears. Press **Acknowledge & silence**; the red strobe border stays until the emergency is stood down.
 
 ## 3. From detection to action (1 min) — Alert Center
 - Open the fire alert. Show:

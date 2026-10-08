@@ -211,6 +211,7 @@ class VisionEngine:
             self.ppe_thresholds[v["absent"]] = self.thr["violation"]
         for label in self.manifest.get("context_labels", []):
             self.ppe_thresholds[label] = self.thr["context"]
+        self.ppe_thresholds.update(self.manifest.get("class_thresholds", {}))
         # Fire boxes are decoded down to fire_low, then gated in _verify_fire.
         self.fire_thresholds = {"fire": self.thr.get("fire_low", self.thr["fire"]), "smoke": self.thr["smoke"]}
 

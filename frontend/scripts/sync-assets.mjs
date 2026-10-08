@@ -13,6 +13,18 @@ const SETS = {
   samples: ['no_ppe_street.jpg', 'ppe_mixed_site.jpg', 'ppe_compliant_crew.jpg', 'fire_outdoor.webm', 'smoke_warehouse.jpg', 'fire_flame.jpg', 'ATTRIBUTION.md'],
 };
 
+// Self-host ONNX Runtime Web (same origin → threaded WASM works under cross-origin isolation)
+{
+  const ortDist = join(here, '..', 'node_modules', 'onnxruntime-web', 'dist');
+  const dest = join(pub, 'ort');
+  mkdirSync(dest, { recursive: true });
+  for (const f of ['ort.webgpu.min.js', 'ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm']) {
+    const out = join(dest, f);
+    if (!existsSync(out) || statSync(out).size !== statSync(join(ortDist, f)).size) cpSync(join(ortDist, f), out);
+  }
+  console.log('assets: onnxruntime-web → public/ort');
+}
+
 for (const [dir, files] of Object.entries(SETS)) {
   const dest = join(pub, dir);
   mkdirSync(dest, { recursive: true });

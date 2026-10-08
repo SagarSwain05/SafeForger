@@ -58,10 +58,10 @@ def build_payload(camera_id: str, zone: str, result: dict, events: List[dict],
 class HttpPublisher:
     """Non-blocking HTTP publisher: a background thread drains a small queue so inference never waits on the network."""
 
-    def __init__(self, backend_url: str, api_key: Optional[str] = None, timeout: float = 8.0):
+    def __init__(self, backend_url: str, api_key: Optional[str] = None, timeout: float = 8.0, site: str = "demo-refinery"):
         import requests
         self.session = requests.Session()
-        self.url = backend_url.rstrip("/") + "/api/vision/detections"
+        self.url = f"{backend_url.rstrip('/')}/api/sites/{site}/vision/detections"
         self.headers = {"Content-Type": "application/json"}
         if api_key:
             self.headers["X-API-Key"] = api_key

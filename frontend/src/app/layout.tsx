@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { SocketProvider } from '@/lib/socket';
-import Sidebar from '@/components/Sidebar';
-import AlertToaster from '@/components/AlertToaster';
+import { ThemeProvider, themeBootScript } from '@/lib/theme';
+import { AuthProvider } from '@/lib/auth';
 
 export const metadata: Metadata = {
   title: 'SafeForge Nexus — Industrial Safety Intelligence',
@@ -12,20 +11,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-theme="dark">
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
       </head>
       <body>
-        <SocketProvider>
-          <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', zIndex: 1 }}>
-            <Sidebar />
-            <main style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-              {children}
-            </main>
-          </div>
-          <AlertToaster />
-        </SocketProvider>
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

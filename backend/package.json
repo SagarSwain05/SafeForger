@@ -1,7 +1,7 @@
 {
   "name": "safeforge-backend",
-  "version": "1.0.0",
-  "description": "SafeForge Nexus backend — real-time safety fabric: vision ingest, compound risk, alerts, permits, RAG, emergency response",
+  "version": "1.1.0",
+  "description": "SafeForge Nexus backend \u2014 real-time safety fabric: vision ingest, compound risk, alerts, permits, RAG, emergency response",
   "main": "src/index.js",
   "license": "AGPL-3.0-or-later",
   "engines": {
@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "mongodb": "^6.21.0",
     "mqtt": "^5.15.1",
     "socket.io": "^4.8.1"
   },

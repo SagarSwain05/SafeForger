@@ -7,7 +7,6 @@
 //   • lead time: minutes until a worsening sensor near active work reaches its alarm level
 // AI recommendations are generated asynchronously and cached, so analysis stays real-time.
 const llm = require('../services/llm');
-const { detectSimops } = require('../data/permitStore');
 
 const FLAMMABLE = ['CH4', 'H2S'];
 const HAZARD_BASE = { CRITICAL: 10, HIGH: 8, MEDIUM: 5, LOW: 2, SAFE: 0 };
@@ -57,7 +56,7 @@ const RULES = [
     id: 'CR-003', name: 'Simultaneous Operations Conflict', severity: 'HIGH',
     regulation: 'OISD-STD-105 (work permit system — simultaneous operations)',
     actions: ['Hold one of the conflicting permits until a SIMOPS assessment is signed off'],
-    check: () => detectSimops().map(c => ({ zones: [...new Set(c.zones)], details: `SIMOPS: ${c.reason} (${c.permitA} / ${c.permitB}).`, permits: [c.permitA, c.permitB] })),
+    check: ({ detectSimops }) => detectSimops().map(c => ({ zones: [...new Set(c.zones)], details: `SIMOPS: ${c.reason} (${c.permitA} / ${c.permitB}).`, permits: [c.permitA, c.permitB] })),
   },
   {
     id: 'CR-004', name: 'Rising Gas Near Active Work', severity: 'HIGH',
@@ -134,7 +133,8 @@ const RULES = [
 const statusOf = (score) => score >= 70 ? 'CRITICAL' : score >= 45 ? 'HIGH' : score >= 25 ? 'ELEVATED' : score >= 10 ? 'LOW' : 'SAFE';
 
 class CompoundRiskOrchestrator {
-  constructor({ layout, kg }) {
+  constructor({ layout, kg, permits }) {
+    this.permits = permits;
     this.layout = layout;
     this.kg = kg;
     this.zones = Object.fromEntries(layout.zones.map(z => [z.id, z]));
@@ -145,7 +145,7 @@ class CompoundRiskOrchestrator {
 
   analyze({ sensors = [], permitsByZone = {}, vision = {}, workers = [], shift = null, forecasts = [], emergencyZones = [] }) {
     const fc = Object.fromEntries(forecasts.map(f => [f.sensorId, f]));
-    const ctx = { sensors, permitsByZone, vision, workers, shift, fc, kg: this.kg, zones: this.zones };
+    const ctx = { sensors, permitsByZone, vision, workers, shift, fc, kg: this.kg, zones: this.zones, detectSimops: () => (this.permits ? this.permits.detectSimops() : []) };
 
     const alerts = [];
     for (const rule of RULES) {

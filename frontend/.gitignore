@@ -44,3 +44,4 @@ next-env.d.ts
 /public/models/
 /public/samples/
 !.env.example
+/public/ort/
